@@ -39,12 +39,13 @@ mat.SetProperty(materials[1], TRANSPORT_XSECTIONS, OPENSN_XSFILE, 'water.mgxs')
 mat.SetProperty(materials[2], TRANSPORT_XSECTIONS, OPENSN_XSFILE, 'fuel.mgxs')
 
 -- Set up physics
-num_g, num_m = 2, 1
+num_g, num_m = 2, 0
 pquad = aquad.CreateProductQuadrature(GAUSS_LEGENDRE_CHEBYSHEV, 4, 16)
 aquad.OptimizeForPolarSymmetry(pquad, 4.0 * math.pi)
 
+num_groups = 2
 lbs_block = {
-  num_groups = num_g,
+  num_groups = 2,
   groupsets = {
     {
       groups_from_to = { 0, num_groups - 1 },
@@ -76,11 +77,13 @@ lbs_options = {
 phys1 = lbs.DiscreteOrdinatesSolver.Create(lbs_block)
 lbs.SetOptions(phys1, lbs_options)
 
-k_solver0 = lbs.NonLinearKEigen.Create({ lbs_solver_handle = phys1 })
+k_solver0 = lbs.PowerIterationKEigen.Create({ lbs_solver_handle = phys1 })
 solver.Initialize(k_solver0)
 solver.Execute(k_solver0)
 
 fflist, count = lbs.GetScalarFieldFunctionList(phys1)
+vtk_basename = "EIR"
+fieldfunc.ExportToVTK(fflist[1], vtk_basename)
 
 -- Exporting the mesh
--- mesh.ExportToPVTU("EIRBenchmark1")
+mesh.ExportToPVTU("EIRBenchmark1")
