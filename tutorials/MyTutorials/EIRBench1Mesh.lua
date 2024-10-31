@@ -27,9 +27,13 @@ mesh.MeshGenerator.Execute(meshgen1)
 
 -- Set Material IDs
 vol0 = logvol.RPPLogicalVolume.Create({ xmin = 0., xmax = 8.9, ymin = 0., ymax = 8.9, infz = true })
-mesh.SetMaterialIDFromLogicalVolume(vol0, 0)
+mesh.SetMaterialIDFromLogicalVolume(vol0, 1)
 vol1 = logvol.RPPLogicalVolume.Create({ xmin = 1., xmax = 7.4, ymin = 1., ymax = 7.4, infz = true })
-mesh.SetMaterialIDFromLogicalVolume(vol1, 1)
+vol2 = logvol.BooleanLogicalVolume.Create({
+  parts = {{op = true, lv = vol0}, {op = false, lv= vol1}}
+})
+mesh.SetMaterialIDFromLogicalVolume(vol2, 0)
+vol = {vol0, vol2}
 
 -- Add Materials
 materials = {}
@@ -82,6 +86,23 @@ solver.Initialize(k_solver0)
 solver.Execute(k_solver0)
 
 fflist, count = lbs.GetScalarFieldFunctionList(phys1)
+for n = 1, 2 do
+  for g = 1, num_g do
+    ffi1 = fieldfunc.FFInterpolationCreate(VOLUME)
+    curffi = ffi1
+    fieldfunc.SetProperty(curffi, OPERATION, OP_AVG)
+    fieldfunc.SetProperty(curffi, LOGICAL_VOLUME, vol[n])
+    fieldfunc.SetProperty(curffi, ADD_FIELDFUNCTION, fflist[g])
+    fieldfunc.Initialize(curffi)
+    fieldfunc.Execute(curffi)
+    phi_avg = fieldfunc.GetValue(curffi)
+    if n == 1 and g == 1 then
+      norm_c = phi_avg
+    end
+    log.Log(LOG_0, string.format("Avg Flux for region: %i, group: %i is %.5e",n, g, phi_avg/norm_c))
+  end
+end
+
 vtk_basename = "EIR"
 fieldfunc.ExportToVTK(fflist[1], vtk_basename)
 
