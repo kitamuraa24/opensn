@@ -2,6 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import exodusii as exo
 
+# Note to the User: One must install the sandialabs/exodusii and netCDF4 
+# Python libraries in their environments. 
+
 def generate_concentric_hexagonal_lattice(d, n):
     """
     Generate a concentric hexagonal lattice with n layers around a central hexagon.
@@ -27,8 +30,8 @@ def generate_concentric_hexagonal_lattice(d, n):
 
     # Add the central hexagon
     hexagons.append(unit_hexagon)
-    nodes.extend(unit_hexagon.tolist())  # Add vertices of the central hexagon
     nodes.append([0, 0])  # Centroid of the central hexagon
+    nodes.extend(unit_hexagon.tolist())  # Add vertices of the central hexagon
 
     # Generate layers around the central hexagon
     for layer in range(1, n + 1):
@@ -42,8 +45,8 @@ def generate_concentric_hexagonal_lattice(d, n):
                 center = np.array([x, y])
                 hexagon = unit_hexagon + center
                 hexagons.append(hexagon)
-                nodes.extend(hexagon.tolist())  # Add vertices of the hexagon
                 nodes.append(center.tolist())  # Add the centroid of the hexagon
+                nodes.extend(hexagon.tolist())  # Add vertices of the hexagon               
 
                 # Move to the next hexagon in the layer
                 if side == 0:  # Moving "down-right"
@@ -125,7 +128,7 @@ def plot_concentric_hexagonal_lattice(d, n):
         plt.plot(hexagon_closed[:, 0], hexagon_closed[:, 1], 'b-')
 
     # Plot nodes (vertices and centroids)
-    plt.scatter(nodes[:, 0], nodes[:, 1], color='red', s=10, label="Vertices and Centroids")
+    plt.scatter(nodes[:7, 0], nodes[:7, 1], color='red', s=10, label="Vertices and Centroids")
 
     # Formatting the plot
     plt.gca().set_aspect('equal', adjustable='box')
@@ -181,11 +184,11 @@ class generate_exodusii:
         """
         # Pre-processing steps to find the nodal coords and num elements.
         X, Y, Z = self.gen_nodal_coords()
-        self.e = exo.exodusii_file('Hexagon.e', 'w')
-        self.e.put_init('ExodusII File', self.dim, self.num_nodes, self.num_elem,
-                        self.num_elem_blk, 0, 0)
-        self.e.put_coord(X, Y, Z)
-        self.e.describe()
+        # self.e = exo.exodusii_file('Hexagon.e', 'w')
+        # self.e.put_init('ExodusII File', self.dim, self.num_nodes, self.num_elem,
+        #                self.num_elem_blk, 0, 0)
+        # self.e.put_coord(X, Y, Z)
+        # self.e.describe()
 
     def get_global_coords(self):
         """
@@ -196,9 +199,9 @@ class generate_exodusii:
 if __name__ == "__main__":
     # Example Usage
     d = 7.5  # Side length of hexagon in cm
-    n = 7    # Number of layers around the central hexagon
+    n = 1   # Number of layers around the central hexagon
 
-    # plot_concentric_hexagonal_lattice(d, n)
+    plot_concentric_hexagonal_lattice(d, n)
 
     # Output nodes for further use
     nodes, _, no_hexagons = generate_concentric_hexagonal_lattice(d, n)
@@ -218,5 +221,5 @@ if __name__ == "__main__":
     dim = 3
     # Initialize mesh generation
     params = [X, Y, Z, dim, num_elem, num_nodes, num_elem_blocks]
-    exo_file = generate_exodusii(params)
-    e = exo_file.gen_exofile()
+    # exo_file = generate_exodusii(params)
+    # e = exo_file.gen_exofile()
