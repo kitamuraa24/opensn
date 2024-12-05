@@ -4,6 +4,7 @@
 #include "modules/linear_boltzmann_solvers/response_evaluator/response_evaluator.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/point_source/point_source.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/volumetric_source/volumetric_source.h"
+#include "modules/linear_boltzmann_solvers/lbs_solver/io/lbs_solver_io.h"
 #include "framework/mesh/mesh_continuum/mesh_continuum.h"
 #include "framework/logging/log.h"
 #include "framework/object_factory.h"
@@ -134,11 +135,13 @@ ResponseEvaluator::SetBufferOptions(const InputParameters& params)
 
   std::vector<double> phi;
   if (prefixes.Has("flux_moments"))
-    lbs_solver_.ReadFluxMoments(prefixes.GetParamValue<std::string>("flux_moments"), phi);
+    LBSSolverIO::ReadFluxMoments(
+      lbs_solver_, prefixes.GetParamValue<std::string>("flux_moments"), false, phi);
 
   std::vector<std::vector<double>> psi;
   if (prefixes.Has("angular_fluxes"))
-    lbs_solver_.ReadAngularFluxes(prefixes.GetParamValue<std::string>("angular_fluxes"), psi);
+    LBSSolverIO::ReadAngularFluxes(
+      lbs_solver_, prefixes.GetParamValue<std::string>("angular_fluxes"), psi);
 
   adjoint_buffers_[name] = {phi, psi};
   log.Log0Verbose1() << "Adjoint buffer " << name << " added to the stack.";
@@ -328,17 +331,17 @@ ResponseEvaluator::EvaluateResponse(const std::string& buffer) const
     for (const auto& cell : grid.local_cells)
     {
       const auto& cell_mapping = discretization.GetCellMapping(cell);
-      const auto& transport_view = transport_views[cell.local_id_];
-      const auto& fe_values = unit_cell_matrices[cell.local_id_];
+      const auto& transport_view = transport_views[cell.local_id];
+      const auto& fe_values = unit_cell_matrices[cell.local_id];
       const auto num_cell_nodes = cell_mapping.NumNodes();
 
-      if (material_sources_.count(cell.material_id_) > 0)
+      if (material_sources_.count(cell.material_id) > 0)
       {
-        const auto& src = material_sources_.at(cell.material_id_);
+        const auto& src = material_sources_.at(cell.material_id);
         for (size_t i = 0; i < num_cell_nodes; ++i)
         {
           const auto dof_map = transport_view.MapDOF(i, 0, 0);
-          const auto& V_i = fe_values.intV_shapeI[i];
+          const auto& V_i = fe_values.intV_shapeI(i);
           for (size_t g = 0; g < num_groups; ++g)
             local_response += src[g] * phi_dagger[dof_map + g] * V_i;
         }
@@ -353,37 +356,37 @@ ResponseEvaluator::EvaluateResponse(const std::string& buffer) const
     for (const auto& groupset : lbs_solver_.Groupsets())
     {
       const auto& uk_man = groupset.psi_uk_man_;
-      const auto& quadrature = groupset.quadrature_;
-      const auto& num_gs_angles = quadrature->omegas_.size();
-      const auto& num_gs_groups = groupset.groups_.size();
+      const auto& quadrature = groupset.quadrature;
+      const auto& num_gs_angles = quadrature->omegas.size();
+      const auto& num_gs_groups = groupset.groups.size();
 
       for (const auto& cell : grid.local_cells)
       {
         const auto& cell_mapping = discretization.GetCellMapping(cell);
-        const auto& fe_values = unit_cell_matrices[cell.local_id_];
+        const auto& fe_values = unit_cell_matrices[cell.local_id];
 
         size_t f = 0;
-        for (const auto& face : cell.faces_)
+        for (const auto& face : cell.faces)
         {
-          if (not face.has_neighbor_ and boundary_sources_.count(face.neighbor_id_) > 0)
+          if (not face.has_neighbor and boundary_sources_.count(face.neighbor_id) > 0)
           {
-            const auto bndry_id = face.neighbor_id_;
+            const auto bndry_id = face.neighbor_id;
             const auto num_face_nodes = cell_mapping.NumFaceNodes(f);
             for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const auto i = cell_mapping.MapFaceNode(f, fi);
-              const auto& node = grid.vertices[cell.vertex_ids_[i]];
-              const auto& intF_shapeI = fe_values.intS_shapeI[f][i];
+              const auto& node = grid.vertices[cell.vertex_ids[i]];
+              const auto& intF_shapeI = fe_values.intS_shapeI[f](i);
 
               const auto psi_bndry = EvaluateBoundaryCondition(bndry_id, node, groupset);
 
               for (size_t n = 0; n < num_gs_angles; ++n)
               {
-                const auto& omega = quadrature->omegas_[n];
-                const auto mu = omega.Dot(face.normal_);
+                const auto& omega = quadrature->omegas[n];
+                const auto mu = omega.Dot(face.normal);
                 if (mu < 0.0)
                 {
-                  const auto& wt = quadrature->weights_[n];
+                  const auto& wt = quadrature->weights[n];
                   const auto weight = -mu * wt * intF_shapeI;
                   const auto dof_map = discretization.MapDOFLocal(cell, i, uk_man, n, 0);
 
@@ -406,7 +409,7 @@ ResponseEvaluator::EvaluateResponse(const std::string& buffer) const
     for (const auto& subscriber : point_source.Subscribers())
     {
       const auto& cell = grid.local_cells[subscriber.cell_local_id];
-      const auto& transport_view = transport_views[cell.local_id_];
+      const auto& transport_view = transport_views[cell.local_id];
 
       const auto& src = point_source.Strength();
       const auto& vol_wt = subscriber.volume_weight;
@@ -415,7 +418,7 @@ ResponseEvaluator::EvaluateResponse(const std::string& buffer) const
       for (size_t i = 0; i < num_cell_nodes; ++i)
       {
         const auto dof_map = transport_view.MapDOF(i, 0, 0);
-        const auto& shape_val = subscriber.shape_values[i];
+        const auto& shape_val = subscriber.shape_values(i);
         for (size_t g = 0; g < num_groups; ++g)
           local_response += vol_wt * shape_val * src[g] * phi_dagger[dof_map + g];
       } // for node i
@@ -426,14 +429,14 @@ ResponseEvaluator::EvaluateResponse(const std::string& buffer) const
     for (const uint64_t local_id : volumetric_source.GetSubscribers())
     {
       const auto& cell = grid.local_cells[local_id];
-      const auto& transport_view = transport_views[cell.local_id_];
-      const auto& fe_values = unit_cell_matrices[cell.local_id_];
+      const auto& transport_view = transport_views[cell.local_id];
+      const auto& fe_values = unit_cell_matrices[cell.local_id];
       const auto& nodes = discretization.GetCellNodeLocations(cell);
 
       const auto num_cell_nodes = transport_view.NumNodes();
       for (size_t i = 0; i < num_cell_nodes; ++i)
       {
-        const auto& V_i = fe_values.intV_shapeI[i];
+        const auto& V_i = fe_values.intV_shapeI(i);
         const auto dof_map = transport_view.MapDOF(i, 0, 0);
         const auto& vals = volumetric_source(cell, nodes[i], num_groups);
         for (size_t g = 0; g < num_groups; ++g)
@@ -452,9 +455,9 @@ ResponseEvaluator::EvaluateBoundaryCondition(const uint64_t boundary_id,
                                              const LBSGroupset& groupset,
                                              const double) const
 {
-  const auto num_gs_angles = groupset.quadrature_->omegas_.size();
-  const auto num_gs_groups = groupset.groups_.size();
-  const auto first_group = groupset.groups_.front().id_;
+  const auto num_gs_angles = groupset.quadrature->omegas.size();
+  const auto num_gs_groups = groupset.groups.size();
+  const auto first_group = groupset.groups.front().id;
 
   std::vector<double> psi;
   const auto& bc = boundary_sources_.at(boundary_id);

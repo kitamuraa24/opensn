@@ -15,9 +15,8 @@ enum class ProductQuadratureType
   UNKNOWN = 0,
   GAUSS_LEGENDRE = 1,
   GAUSS_CHEBYSHEV = 2,
-  GAUSS_LEGENDRE_LEGENDRE = 3,
-  GAUSS_LEGENDRE_CHEBYSHEV = 4,
-  CUSTOM_QUADRATURE = 5,
+  GAUSS_LEGENDRE_CHEBYSHEV = 3,
+  CUSTOM_QUADRATURE = 4,
 };
 
 /// Class for product quadratures
@@ -30,8 +29,8 @@ protected:
   ProductQuadrature() : AngularQuadrature(AngularQuadratureType::ProductQuadrature) {}
 
 public:
-  std::vector<double> polar_ang_;
-  std::vector<double> azimu_ang_;
+  std::vector<double> polar_ang;
+  std::vector<double> azimu_ang;
 
   ~ProductQuadrature() override = default;
 
@@ -73,13 +72,6 @@ class AngularQuadratureProdGL : public ProductQuadrature
 public:
   /// Constructor for Angular Gauss-Legendre.
   explicit AngularQuadratureProdGL(int Np, bool verbose = false);
-};
-
-class AngularQuadratureProdGLL : public ProductQuadrature
-{
-public:
-  /// Constructor for Angular Gauss-Legendre-Legendre.
-  explicit AngularQuadratureProdGLL(int Na, int Np, bool verbose = false);
 };
 
 class AngularQuadratureProdGLC : public ProductQuadrature

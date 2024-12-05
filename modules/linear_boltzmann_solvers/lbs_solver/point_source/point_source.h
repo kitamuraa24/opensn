@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include <utility>
-
 #include "framework/mesh/mesh.h"
+#include "framework/math/math.h"
 #include "framework/object.h"
+#include <utility>
 
 namespace opensn
 {
@@ -36,8 +36,8 @@ public:
   {
     double volume_weight;
     uint64_t cell_local_id;
-    std::vector<double> shape_values;
-    std::vector<double> node_weights;
+    Vector<double> shape_values;
+    Vector<double> node_weights;
   };
 
 public:

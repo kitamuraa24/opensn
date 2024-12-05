@@ -3,9 +3,9 @@
 
 #include "modules/linear_boltzmann_solvers/lbs_solver/iterative_methods/wgs_linear_solver.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/iterative_methods/wgs_convergence_test.h"
+#include "modules/linear_boltzmann_solvers/lbs_solver/lbs_vecops.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/lbs_solver.h"
 #include "framework/math/petsc_utils/petsc_utils.h"
-#include "framework/math/linear_solver/linear_matrix_action_Ax.h"
 #include "framework/logging/log.h"
 #include "framework/utils/timer.h"
 #include "framework/runtime.h"
@@ -17,15 +17,14 @@
 namespace opensn
 {
 
-WGSLinearSolver::WGSLinearSolver(std::shared_ptr<WGSContext> gs_context_ptr)
-  : LinearSolver(IterativeMethodPETScName(gs_context_ptr->groupset_.iterative_method_),
-                 gs_context_ptr)
+WGSLinearSolver::WGSLinearSolver(const std::shared_ptr<WGSContext>& gs_context_ptr)
+  : PETScLinearSolver(gs_context_ptr->groupset.iterative_method, gs_context_ptr)
 {
-  auto& groupset = gs_context_ptr->groupset_;
+  auto& groupset = gs_context_ptr->groupset;
   auto& solver_tol_options = this->ToleranceOptions();
-  solver_tol_options.residual_absolute = groupset.residual_tolerance_;
-  solver_tol_options.maximum_iterations = groupset.max_iterations_;
-  solver_tol_options.gmres_restart_interval = groupset.gmres_restart_intvl_;
+  solver_tol_options.residual_absolute = groupset.residual_tolerance;
+  solver_tol_options.maximum_iterations = groupset.max_iterations;
+  solver_tol_options.gmres_restart_interval = groupset.gmres_restart_intvl;
 }
 
 WGSLinearSolver::~WGSLinearSolver()
@@ -135,10 +134,10 @@ WGSLinearSolver::SetInitialGuess()
 
   auto gs_context_ptr = std::dynamic_pointer_cast<WGSContext>(context_ptr_);
 
-  auto& groupset = gs_context_ptr->groupset_;
-  auto& lbs_solver = gs_context_ptr->lbs_solver_;
+  auto& groupset = gs_context_ptr->groupset;
+  auto& lbs_solver = gs_context_ptr->lbs_solver;
 
-  lbs_solver.SetGSPETScVecFromPrimarySTLvector(groupset, x_, PhiSTLOption::PHI_OLD);
+  LBSVecOps::SetGSPETScVecFromPrimarySTLvector(lbs_solver, groupset, x_, PhiSTLOption::PHI_OLD);
 
   double init_guess_norm = 0.0;
   VecNorm(x_, NORM_2, &init_guess_norm);
@@ -146,7 +145,7 @@ WGSLinearSolver::SetInitialGuess()
   if (init_guess_norm > 1.0e-10)
   {
     KSPSetInitialGuessNonzero(ksp_, PETSC_TRUE);
-    if (gs_context_ptr->log_info_)
+    if (gs_context_ptr->log_info)
       log.Log() << "Using phi_old as initial guess.";
   }
 }
@@ -158,29 +157,30 @@ WGSLinearSolver::SetRHS()
 
   auto gs_context_ptr = std::dynamic_pointer_cast<WGSContext>(context_ptr_);
 
-  auto& groupset = gs_context_ptr->groupset_;
-  auto& lbs_solver = gs_context_ptr->lbs_solver_;
+  auto& groupset = gs_context_ptr->groupset;
+  auto& lbs_solver = gs_context_ptr->lbs_solver;
 
-  if (gs_context_ptr->log_info_)
+  if (gs_context_ptr->log_info)
     log.Log() << program_timer.GetTimeString() << " Computing b";
 
   // SetSource for RHS
   saved_q_moments_local_ = lbs_solver.QMomentsLocal();
 
   const bool single_richardson =
-    iterative_method_ == "krylov_richardson" and tolerance_options_.maximum_iterations == 1;
+    groupset.iterative_method == LinearSolver::IterativeMethod::PETSC_RICHARDSON and
+    tolerance_options.maximum_iterations == 1;
 
   if (not single_richardson)
   {
-    const auto scope = gs_context_ptr->rhs_src_scope_ | ZERO_INCOMING_DELAYED_PSI;
-    gs_context_ptr->set_source_function_(
+    const auto scope = gs_context_ptr->rhs_src_scope | ZERO_INCOMING_DELAYED_PSI;
+    gs_context_ptr->set_source_function(
       groupset, lbs_solver.QMomentsLocal(), lbs_solver.PhiOldLocal(), scope);
 
     // Apply transport operator
     gs_context_ptr->ApplyInverseTransportOperator(scope);
 
     // Assemble PETSc vector
-    lbs_solver.SetGSPETScVecFromPrimarySTLvector(groupset, b_, PhiSTLOption::PHI_NEW);
+    LBSVecOps::SetGSPETScVecFromPrimarySTLvector(lbs_solver, groupset, b_, PhiSTLOption::PHI_NEW);
 
     // Compute RHS norm
     VecNorm(b_, NORM_2, &context_ptr_->rhs_norm);
@@ -200,15 +200,15 @@ WGSLinearSolver::SetRHS()
   // RHS, and just suppress the kspsolve part.
   else
   {
-    const auto scope = gs_context_ptr->rhs_src_scope_ | gs_context_ptr->lhs_src_scope_;
-    gs_context_ptr->set_source_function_(
+    const auto scope = gs_context_ptr->rhs_src_scope | gs_context_ptr->lhs_src_scope;
+    gs_context_ptr->set_source_function(
       groupset, lbs_solver.QMomentsLocal(), lbs_solver.PhiOldLocal(), scope);
 
     // Apply transport operator
     gs_context_ptr->ApplyInverseTransportOperator(scope);
 
     // Assemble PETSc vector
-    lbs_solver.SetGSPETScVecFromPrimarySTLvector(groupset, x_, PhiSTLOption::PHI_NEW);
+    LBSVecOps::SetGSPETScVecFromPrimarySTLvector(lbs_solver, groupset, x_, PhiSTLOption::PHI_NEW);
 
     // Compute RHS norm
     VecNorm(x_, NORM_2, &context_ptr_->rhs_norm);
@@ -246,11 +246,11 @@ WGSLinearSolver::PostSolveCallback()
   // Copy x to local solution
   auto gs_context_ptr = std::dynamic_pointer_cast<WGSContext>(context_ptr_);
 
-  auto& groupset = gs_context_ptr->groupset_;
-  auto& lbs_solver = gs_context_ptr->lbs_solver_;
+  auto& groupset = gs_context_ptr->groupset;
+  auto& lbs_solver = gs_context_ptr->lbs_solver;
 
-  lbs_solver.SetPrimarySTLvectorFromGSPETScVec(groupset, x_, PhiSTLOption::PHI_NEW);
-  lbs_solver.SetPrimarySTLvectorFromGSPETScVec(groupset, x_, PhiSTLOption::PHI_OLD);
+  LBSVecOps::SetPrimarySTLvectorFromGSPETScVec(lbs_solver, groupset, x_, PhiSTLOption::PHI_NEW);
+  LBSVecOps::SetPrimarySTLvectorFromGSPETScVec(lbs_solver, groupset, x_, PhiSTLOption::PHI_OLD);
 
   // Restore saved q_moms
   lbs_solver.QMomentsLocal() = saved_q_moments_local_;

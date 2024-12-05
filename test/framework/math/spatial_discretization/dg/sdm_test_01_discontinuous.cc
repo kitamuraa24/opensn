@@ -110,8 +110,8 @@ math_SDM_Test02_DisContinuous(const InputParameters& input_parameters)
 
     const auto [domain_nodes, bndry_nodes] = sdm.MakeCellInternalAndBndryNodeIDs(cell);
 
-    MatDbl Acell(num_nodes, std::vector<double>(num_nodes, 0.0));
-    std::vector<double> cell_rhs(num_nodes, 0.0);
+    DenseMatrix<double> Acell(num_nodes, num_nodes, 0.0);
+    Vector<double> cell_rhs(num_nodes, 0.0);
 
     // Assemble continuous kernels
     {
@@ -130,26 +130,26 @@ math_SDM_Test02_DisContinuous(const InputParameters& input_parameters)
           for (size_t qp : qp_data.QuadraturePointIndices())
             entry_aij += shape_grad[i][qp].Dot(shape_grad[j][qp]) * JxW[qp];
 
-          Acell[i][j] = entry_aij;
+          Acell(i, j) = entry_aij;
         } // for j
         for (size_t qp : qp_data.QuadraturePointIndices())
-          cell_rhs[i] += 1.0 * shape[i][qp] * JxW[qp];
+          cell_rhs(i) += 1.0 * shape[i][qp] * JxW[qp];
       } // for i
     }   // continuous kernels
 
-    const size_t num_faces = cell.faces_.size();
+    const size_t num_faces = cell.faces.size();
     for (size_t f = 0; f < num_faces; ++f)
     {
-      const auto& face = cell.faces_[f];
-      const auto& n_f = face.normal_;
+      const auto& face = cell.faces[f];
+      const auto& n_f = face.normal;
       const size_t num_face_nodes = cell_mapping.NumFaceNodes(f);
       const auto fqp_data = cell_mapping.MakeSurfaceFiniteElementData(f);
 
       const double hm = HPerpendicular(cell_mapping, f);
 
-      if (face.has_neighbor_)
+      if (face.has_neighbor)
       {
-        const auto& adj_cell = grid.cells[face.neighbor_id_];
+        const auto& adj_cell = grid.cells[face.neighbor_id];
         const auto& adj_cell_mapping = sdm.GetCellMapping(adj_cell);
         const auto ac_nodes = adj_cell_mapping.GetNodeLocations();
         const size_t acf = MeshContinuum::MapCellFace(cell, adj_cell, f);
@@ -198,11 +198,11 @@ math_SDM_Test02_DisContinuous(const InputParameters& input_parameters)
         // Dk = 0.5* n dot nabla bk
 
         // 0.5*D* n dot (b_j^+ - b_j^-)*nabla b_i^-
-        for (int i = 0; i < num_nodes; i++)
+        for (int i = 0; i < num_nodes; ++i)
         {
           const int64_t imap = sdm.MapDOF(cell, i, OneDofPerNode, 0, 0);
 
-          for (int fj = 0; fj < num_face_nodes; fj++)
+          for (int fj = 0; fj < num_face_nodes; ++fj)
           {
             const int jm = cell_mapping.MapFaceNode(f, fj); // j-minus
             const int jp = MapFaceNodeDisc(cell_mapping,
@@ -226,7 +226,7 @@ math_SDM_Test02_DisContinuous(const InputParameters& input_parameters)
         }   // for i
 
         // 0.5*D* n dot (b_i^+ - b_i^-)*nabla b_j^-
-        for (int fi = 0; fi < num_face_nodes; fi++)
+        for (int fi = 0; fi < num_face_nodes; ++fi)
         {
           const int im = cell_mapping.MapFaceNode(f, fi); // i-minus
           const int ip = MapFaceNodeDisc(cell_mapping,
@@ -239,7 +239,7 @@ math_SDM_Test02_DisContinuous(const InputParameters& input_parameters)
           const int64_t immap = sdm.MapDOF(cell, im, OneDofPerNode, 0, 0);
           const int64_t ipmap = sdm.MapDOF(adj_cell, ip, OneDofPerNode, 0, 0);
 
-          for (int j = 0; j < num_nodes; j++)
+          for (int j = 0; j < num_nodes; ++j)
           {
             const int64_t jmap = sdm.MapDOF(cell, j, OneDofPerNode, 0, 0);
 
@@ -294,11 +294,11 @@ math_SDM_Test02_DisContinuous(const InputParameters& input_parameters)
         // Dk = n dot nabla bk
 
         // D* n dot (b_j^+ - b_j^-)*nabla b_i^-
-        for (size_t i = 0; i < num_nodes; i++)
+        for (size_t i = 0; i < num_nodes; ++i)
         {
           const int64_t imap = sdm.MapDOF(cell, i, OneDofPerNode, 0, 0);
 
-          for (size_t j = 0; j < num_nodes; j++)
+          for (size_t j = 0; j < num_nodes; ++j)
           {
             const int64_t jmap = sdm.MapDOF(cell, j, OneDofPerNode, 0, 0);
 
@@ -326,9 +326,9 @@ math_SDM_Test02_DisContinuous(const InputParameters& input_parameters)
     for (size_t i = 0; i < num_nodes; ++i)
     {
       for (size_t j = 0; j < num_nodes; ++j)
-        MatSetValue(A, imap[i], imap[j], Acell[i][j], ADD_VALUES);
+        MatSetValue(A, imap[i], imap[j], Acell(i, j), ADD_VALUES);
 
-      VecSetValue(b, imap[i], cell_rhs[i], ADD_VALUES);
+      VecSetValue(b, imap[i], cell_rhs(i), ADD_VALUES);
     } // for i
   }   // for cell
 
@@ -443,8 +443,8 @@ HPerpendicular(const CellMapping& cell_mapping, unsigned int f)
   const auto& cell = cell_mapping.ReferenceCell();
   double hp;
 
-  const size_t num_faces = cell.faces_.size();
-  const size_t num_vertices = cell.vertex_ids_.size();
+  const size_t num_faces = cell.faces.size();
+  const size_t num_vertices = cell.vertex_ids.size();
 
   const double volume = cell_mapping.CellVolume();
   const double face_area = cell_mapping.FaceArea(f);

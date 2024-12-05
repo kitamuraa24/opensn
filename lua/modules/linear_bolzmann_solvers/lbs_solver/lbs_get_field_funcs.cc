@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 #include "lua/modules/linear_bolzmann_solvers/lbs_solver/lbs_common_lua_functions.h"
+#include "lua/framework/lua.h"
+#include "lua/framework/console/console.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/lbs_solver.h"
 #include "framework/field_functions/field_function_grid_based.h"
 #include "framework/runtime.h"
 #include "framework/logging/log.h"
-#include "lua/framework/lua.h"
-#include "lua/framework/console/console.h"
 
 using namespace opensn;
 
@@ -15,6 +15,7 @@ namespace opensnlua
 {
 
 RegisterLuaFunctionInNamespace(LBSGetScalarFieldFunctionList, lbs, GetScalarFieldFunctionList);
+RegisterLuaFunctionInNamespace(LBSGetPowerFieldFunction, lbs, GetPowerFieldFunction);
 
 int
 LBSGetScalarFieldFunctionList(lua_State* L)
@@ -46,9 +47,9 @@ LBSGetScalarFieldFunctionList(lua_State* L)
   // Building table of handles
   std::vector<size_t> ff_handles;
   // Flux moments first
-  for (int g = 0; g < lbs_solver.NumGroups(); g++)
+  for (int g = 0; g < lbs_solver.NumGroups(); ++g)
   {
-    for (int m = 0; m < lbs_solver.NumMoments(); m++)
+    for (int m = 0; m < lbs_solver.NumMoments(); ++m)
     {
       const size_t ff = lbs_solver.MapPhiFieldFunction(g, m);
       auto local_ff = lbs_solver.GetFieldFunctions()[ff];
@@ -60,19 +61,24 @@ LBSGetScalarFieldFunctionList(lua_State* L)
     }
   }
 
-  //// Power generation
-  // if (lbs_solver.Options().power_field_function_on)
-  //{
-  //   const size_t ff = lbs_solver.GetHandleToPowerGenFieldFunc();
-  //   auto local_ff = lbs_solver.GetFieldFunctions()[ff];
-  //
-  //   lua_pushinteger(L, 1 + count++);
-  //   lua_pushinteger(L, static_cast<lua_Integer>(GetStackFFHandle(local_ff)));
-  //
-  //   lua_settable(L, -3);
-  // }
-
   return LuaReturn(L, ff_handles, ff_handles.size());
 }
 
+int
+LBSGetPowerFieldFunction(lua_State* L)
+{
+  const std::string fname = "lbs.GetPowerFieldFunction";
+  LuaCheckArgs<size_t>(L, fname);
+
+  // Get pointer to solver
+  const auto solver_handle = LuaArg<size_t>(L, 1);
+  const auto& lbs_solver =
+    opensn::GetStackItem<opensn::LBSSolver>(opensn::object_stack, solver_handle, fname);
+
+  if (lbs_solver.Options().power_field_function_on)
+    return LuaReturn(L, lbs_solver.GetHandleToPowerGenFieldFunc());
+  else
+    throw std::logic_error("The power field function is not enabled. Use \"power_field_function_on "
+                           "= true\" in the input options to enable it.");
+}
 } // namespace opensnlua

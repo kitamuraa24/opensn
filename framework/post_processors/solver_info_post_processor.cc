@@ -2,13 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 #include "framework/post_processors/solver_info_post_processor.h"
-
 #include "framework/object_factory.h"
-
-#include "framework/physics/solver_base/solver.h"
+#include "framework/physics/solver.h"
 #include "framework/physics/time_steppers/time_stepper.h"
 #include "framework/event_system/event.h"
-
 #include <algorithm>
 
 namespace opensn
@@ -49,7 +46,7 @@ SolverInfoPostProcessor::SolverInfoPostProcessor(const InputParameters& params)
   if (param_assigned.Has("solvername_filter"))
     solvername_filter_ = params.GetParamValue<std::string>("solvername_filter");
   else
-    solvername_filter_ = solver_.TextName();
+    solvername_filter_ = solver_.Name();
 }
 
 void

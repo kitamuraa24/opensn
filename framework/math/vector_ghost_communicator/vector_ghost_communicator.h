@@ -3,10 +3,10 @@
 
 #pragma once
 
+#include "mpicpp-lite/mpicpp-lite.h"
 #include <vector>
 #include <cstdint>
 #include <map>
-#include "mpicpp-lite/mpicpp-lite.h"
 
 namespace mpi = mpicpp_lite;
 
@@ -56,13 +56,13 @@ protected:
 
   struct CachedParallelData
   {
-    std::vector<int> sendcounts_;
-    std::vector<int> senddispls_;
-    std::vector<int> recvcounts_;
-    std::vector<int> recvdispls_;
+    std::vector<int> sendcounts;
+    std::vector<int> senddispls;
+    std::vector<int> recvcounts;
+    std::vector<int> recvdispls;
 
-    std::vector<int64_t> local_ids_to_send_;
-    std::map<int64_t, size_t> ghost_to_recv_map_;
+    std::vector<int64_t> local_ids_to_send;
+    std::map<int64_t, size_t> ghost_to_recv_map;
   };
 
   const CachedParallelData cached_parallel_data_;

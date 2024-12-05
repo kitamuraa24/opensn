@@ -3,6 +3,7 @@
 
 #include "modules/linear_boltzmann_solvers/executors/nl_keigen.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/iterative_methods/power_iteration_keigen.h"
+#include "modules/linear_boltzmann_solvers/lbs_solver/lbs_vecops.h"
 #include "framework/object_factory.h"
 #include "framework/logging/log.h"
 
@@ -54,17 +55,17 @@ NonLinearKEigen::NonLinearKEigen(const InputParameters& params)
 {
   auto& tolerances = nl_solver_.ToleranceOptions();
 
-  tolerances.nl_abs_tol_ = params.GetParamValue<double>("nl_abs_tol");
-  tolerances.nl_rel_tol_ = params.GetParamValue<double>("nl_rel_tol");
-  tolerances.nl_sol_tol_ = params.GetParamValue<double>("nl_sol_tol");
-  tolerances.nl_max_its_ = params.GetParamValue<int>("nl_max_its");
+  tolerances.nl_abs_tol = params.GetParamValue<double>("nl_abs_tol");
+  tolerances.nl_rel_tol = params.GetParamValue<double>("nl_rel_tol");
+  tolerances.nl_sol_tol = params.GetParamValue<double>("nl_sol_tol");
+  tolerances.nl_max_its = params.GetParamValue<int>("nl_max_its");
 
-  tolerances.l_rel_tol_ = params.GetParamValue<double>("l_rel_tol");
-  tolerances.l_abs_tol_ = params.GetParamValue<double>("l_abs_tol");
-  tolerances.l_div_tol_ = params.GetParamValue<double>("l_div_tol");
-  tolerances.l_max_its_ = params.GetParamValue<int>("l_max_its");
-  tolerances.l_gmres_restart_intvl_ = params.GetParamValue<int>("l_gmres_restart_intvl");
-  tolerances.l_gmres_breakdown_tol_ = params.GetParamValue<double>("l_gmres_breakdown_tol");
+  tolerances.l_rel_tol = params.GetParamValue<double>("l_rel_tol");
+  tolerances.l_abs_tol = params.GetParamValue<double>("l_abs_tol");
+  tolerances.l_div_tol = params.GetParamValue<double>("l_div_tol");
+  tolerances.l_max_its = params.GetParamValue<int>("l_max_its");
+  tolerances.l_gmres_restart_intvl = params.GetParamValue<int>("l_gmres_restart_intvl");
+  tolerances.l_gmres_breakdown_tol = params.GetParamValue<double>("l_gmres_breakdown_tol");
 }
 
 void
@@ -77,13 +78,13 @@ void
 NonLinearKEigen::Execute()
 {
   if (reset_phi0_)
-    lbs_solver_.SetPhiVectorScalarValues(lbs_solver_.PhiOldLocal(), 1.0);
+    LBSVecOps::SetPhiVectorScalarValues(lbs_solver_, PhiSTLOption::PHI_OLD, 1.0);
 
   if (num_initial_power_its_ > 0)
   {
     double k_eff = 1.0;
     PowerIterationKEigen(
-      lbs_solver_, nl_solver_.ToleranceOptions().nl_abs_tol_, num_initial_power_its_, k_eff);
+      lbs_solver_, nl_solver_.ToleranceOptions().nl_abs_tol, num_initial_power_its_, k_eff);
   }
 
   nl_solver_.Setup();
@@ -92,7 +93,7 @@ NonLinearKEigen::Execute()
   if (lbs_solver_.Options().use_precursors)
   {
     lbs_solver_.ComputePrecursors();
-    Scale(lbs_solver_.PrecursorsNewLocal(), 1.0 / nl_context_->kresid_func_context_.k_eff);
+    Scale(lbs_solver_.PrecursorsNewLocal(), 1.0 / nl_context_->kresid_func_context.k_eff);
   }
 
   lbs_solver_.UpdateFieldFunctions();

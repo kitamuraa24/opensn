@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 #include "lua/modules/linear_bolzmann_solvers/lbs_solver/lbs_common_lua_functions.h"
-#include "modules/linear_boltzmann_solvers/lbs_solver/lbs_solver.h"
-#include "framework/runtime.h"
-#include "framework/logging/log.h"
 #include "lua/framework/lua.h"
 #include "lua/framework/console/console.h"
+#include "modules/linear_boltzmann_solvers/lbs_solver/lbs_solver.h"
+#include "modules/linear_boltzmann_solvers/lbs_solver/io/lbs_solver_io.h"
+#include "framework/runtime.h"
+#include "framework/logging/log.h"
 
 using namespace opensn;
 
@@ -33,8 +34,7 @@ LBSWriteFluxMoments(lua_State* L)
   // Get pointer to solver
   auto& lbs_solver =
     opensn::GetStackItem<opensn::LBSSolver>(opensn::object_stack, solver_handle, fname);
-
-  lbs_solver.WriteFluxMoments(lbs_solver.PhiOldLocal(), file_base);
+  LBSSolverIO::WriteFluxMoments(lbs_solver, file_base);
 
   return LuaReturn(L);
 }
@@ -53,7 +53,7 @@ LBSCreateAndWriteSourceMoments(lua_State* L)
     opensn::GetStackItem<opensn::LBSSolver>(opensn::object_stack, solver_handle, fname);
 
   auto source_moments = lbs_solver.MakeSourceMomentsFromPhi();
-  lbs_solver.WriteFluxMoments(source_moments, file_base);
+  LBSSolverIO::WriteFluxMoments(lbs_solver, file_base, source_moments);
 
   return LuaReturn(L);
 }
@@ -72,7 +72,8 @@ LBSReadFluxMomentsAndMakeSourceMoments(lua_State* L)
   auto& lbs_solver =
     opensn::GetStackItem<opensn::LBSSolver>(opensn::object_stack, solver_handle, fname);
 
-  lbs_solver.ReadFluxMoments(file_base, lbs_solver.ExtSrcMomentsLocal(), single_file_flag);
+  LBSSolverIO::ReadFluxMoments(
+    lbs_solver, file_base, single_file_flag, lbs_solver.ExtSrcMomentsLocal());
 
   opensn::log.Log() << "Making source moments from flux file.";
   auto temp_phi = lbs_solver.PhiOldLocal();
@@ -93,11 +94,11 @@ LBSReadSourceMoments(lua_State* L)
   const auto file_base = LuaArg<std::string>(L, 2);
   auto single_file_flag = LuaArgOptional<bool>(L, 3, false);
 
-  // Get pointer to solver
   auto& lbs_solver =
     opensn::GetStackItem<opensn::LBSSolver>(opensn::object_stack, solver_handle, fname);
 
-  lbs_solver.ReadFluxMoments(file_base, lbs_solver.ExtSrcMomentsLocal(), single_file_flag);
+  LBSSolverIO::ReadFluxMoments(
+    lbs_solver, file_base, single_file_flag, lbs_solver.ExtSrcMomentsLocal());
 
   return LuaReturn(L);
 }
@@ -112,11 +113,9 @@ LBSReadFluxMoments(lua_State* L)
   const auto file_base = LuaArg<std::string>(L, 2);
   auto single_file_flag = LuaArgOptional<bool>(L, 3, false);
 
-  // Get pointer to solver
   auto& lbs_solver =
     opensn::GetStackItem<opensn::LBSSolver>(opensn::object_stack, solver_handle, fname);
-
-  lbs_solver.ReadFluxMoments(file_base, lbs_solver.PhiOldLocal(), single_file_flag);
+  LBSSolverIO::ReadFluxMoments(lbs_solver, file_base, single_file_flag);
 
   return LuaReturn(L);
 }

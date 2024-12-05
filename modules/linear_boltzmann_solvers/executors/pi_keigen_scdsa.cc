@@ -3,9 +3,11 @@
 
 #include "modules/linear_boltzmann_solvers/executors/pi_keigen_scdsa.h"
 #include "framework/math/spatial_discretization/finite_element/piecewise_linear/piecewise_linear_continuous.h"
+#include "modules/linear_boltzmann_solvers/discrete_ordinates_solver/lbs_discrete_ordinates_solver.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/acceleration/diffusion_mip_solver.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/acceleration/diffusion_pwlc_solver.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/iterative_methods/ags_solver.h"
+#include "modules/linear_boltzmann_solvers/lbs_solver/lbs_vecops.h"
 #include "framework/math/vector_ghost_communicator/vector_ghost_communicator.h"
 #include "framework/mesh/mesh_continuum/mesh_continuum.h"
 #include "framework/utils/timer.h"
@@ -71,6 +73,16 @@ PowerIterationKEigenSCDSA::PowerIterationKEigenSCDSA(const InputParameters& para
   if (lbs_solver_.Groupsets().size() != 1)
     throw std::logic_error("The SCDSA k-eigenvalue executor is only implemented for "
                            "problems with a single groupset.");
+
+  // If using the AAH solver with one sweep, a few iterations need to be done
+  // to get rid of the junk in the unconverged lagged angular fluxes.  Five
+  // sweeps is a guess at how many initial sweeps are necessary.
+  auto& lbs_solver = dynamic_cast<DiscreteOrdinatesSolver&>(lbs_solver_);
+  if (lbs_solver.SweepType() == "AAH" and front_gs_.max_iterations == 1)
+    throw std::logic_error("The AAH solver is not stable for single-sweep methods due to "
+                           "the presence of lagged angular fluxes.  Multiple sweeps are "
+                           "allowed, however, the number of sweeps required to get sensible "
+                           "results is not well studied and problem dependent.");
 }
 
 void
@@ -79,7 +91,7 @@ PowerIterationKEigenSCDSA::Initialize()
   PowerIterationKEigen::Initialize();
 
   // Make UnknownManager
-  const size_t num_gs_groups = front_gs_.groups_.size();
+  const size_t num_gs_groups = front_gs_.groups.size();
   UnknownManager uk_man;
   uk_man.AddUnknown(UnknownType::VECTOR_N, num_gs_groups);
 
@@ -88,7 +100,7 @@ PowerIterationKEigenSCDSA::Initialize()
 
   // Make xs map
   auto matid_2_mgxs_map = PackGroupsetXS(
-    lbs_solver_.GetMatID2XSMap(), front_gs_.groups_.front().id_, front_gs_.groups_.back().id_);
+    lbs_solver_.GetMatID2XSMap(), front_gs_.groups.front().id, front_gs_.groups.back().id);
 
   // Create solver
   const auto& sdm = lbs_solver_.SpatialDiscretization();
@@ -96,7 +108,7 @@ PowerIterationKEigenSCDSA::Initialize()
 
   if (diffusion_solver_sdm_ == "pwld")
   {
-    diffusion_solver_ = std::make_shared<DiffusionMIPSolver>(std::string(TextName() + "_WGDSA"),
+    diffusion_solver_ = std::make_shared<DiffusionMIPSolver>(std::string(Name() + "_WGDSA"),
                                                              sdm,
                                                              uk_man,
                                                              bcs,
@@ -108,7 +120,7 @@ PowerIterationKEigenSCDSA::Initialize()
   else
   {
     continuous_sdm_ptr_ = PieceWiseLinearContinuous::New(sdm.Grid());
-    diffusion_solver_ = std::make_shared<DiffusionPWLCSolver>(std::string(TextName() + "_WGDSA"),
+    diffusion_solver_ = std::make_shared<DiffusionPWLCSolver>(std::string(Name() + "_WGDSA"),
                                                               *continuous_sdm_ptr_,
                                                               uk_man,
                                                               bcs,
@@ -159,6 +171,16 @@ PowerIterationKEigenSCDSA::Execute()
     SetLBSScatterSource(phi_temp, additive, suppress_wg_scat);
   };
 
+  auto& lbs_solver = dynamic_cast<DiscreteOrdinatesSolver&>(lbs_solver_);
+
+  // If using multiple sweeps, the algorithm requires a delta-phi between two
+  // successive iterations. This is not possible to obtain with the standard solve
+  // routine.  Instead, a follow-up sweep must be performed.  If using two or more
+  // sweeps, reduce the sweep count by one to ensure the user gets the requested
+  // number of sweeps per outer.
+  const bool extra_sweep = front_gs_.max_iterations > 1;
+  front_gs_.max_iterations -= extra_sweep ? 1 : 0;
+
   k_eff_ = 1.0;
   double k_eff_prev = 1.0;
   double k_eff_change = 1.0;
@@ -171,31 +193,38 @@ PowerIterationKEigenSCDSA::Execute()
     // Set the fission source
     SetLBSFissionSource(phi_old_local_, false);
     Scale(q_moments_local_, 1.0 / k_eff_);
-
     auto Sf_ell = q_moments_local_;
-    auto Sf0_ell = CopyOnlyPhi0(front_gs_, q_moments_local_);
+    auto Sf0_ell = CopyOnlyPhi0(front_gs_, Sf_ell);
 
-    // This solves the inners for transport
+    // Init old scalar flux storage. If using a single sweep, set
+    // it to the existing scalar flux
+    std::vector<double> phi0_ell;
+    if (not extra_sweep)
+      phi0_ell = CopyOnlyPhi0(front_gs_, phi_old_local_);
+
+    // Solve transport inners
     ags_solver_->Solve();
+    if (extra_sweep)
+    {
+      // Set the old scalar flux to the scalar flux before the last sweep
+      phi0_ell = CopyOnlyPhi0(front_gs_, phi_new_local_);
 
-    // lph_i = l + 1/2,i
-    auto phi0_lph_i = CopyOnlyPhi0(front_gs_, phi_new_local_);
+      // Do an extra sweep
+      q_moments_local_ = Sf_ell;
+      SetLBSScatterSource(phi_old_local_, true);
+      front_wgs_context_->ApplyInverseTransportOperator(SourceFlags());
+    }
 
-    // Now we produce lph_ip1 = l + 1/2, i+1
-    q_moments_local_ = Sf_ell; // Restore 1/k F phi_l
-    SetLBSScatterSource(phi_new_local_, true);
-
-    front_wgs_context_->ApplyInverseTransportOperator(SourceFlags()); // Sweep
-
-    auto phi0_lph_ip1 = CopyOnlyPhi0(front_gs_, phi_new_local_);
+    // Store the intermediate scalar flux
+    auto phi0_star = CopyOnlyPhi0(front_gs_, phi_new_local_);
 
     // Power Iteration Acceleration
-    SetLBSScatterSourcePhi0(phi0_lph_ip1 - phi0_lph_i, false);
-    auto Ss_res = CopyOnlyPhi0(front_gs_, q_moments_local_);
+    SetLBSScatterSourcePhi0(phi0_star - phi0_ell, false);
+    auto Ss0_res = CopyOnlyPhi0(front_gs_, q_moments_local_);
 
-    double production_k = lbs_solver_.ComputeFissionProduction(phi_new_local_);
+    double production_k = lbs_solver.ComputeFissionProduction(phi_new_local_);
 
-    std::vector<double> epsilon_k(phi0_lph_ip1.size(), 0.0);
+    std::vector<double> epsilon_k(phi0_star.size(), 0.0);
     auto epsilon_kp1 = epsilon_k;
 
     double lambda_k = k_eff_;
@@ -203,11 +232,11 @@ PowerIterationKEigenSCDSA::Execute()
 
     for (size_t k = 0; k < accel_pi_max_its_; ++k)
     {
-      ProjectBackPhi0(front_gs_, epsilon_k + phi0_lph_ip1, phi_temp);
+      ProjectBackPhi0(front_gs_, epsilon_k + phi0_star, phi_temp);
       SetLBSFissionSource(phi_temp, false);
       Scale(q_moments_local_, 1.0 / lambda_k);
 
-      auto Sfaux = CopyOnlyPhi0(front_gs_, q_moments_local_);
+      auto Sf0_aux = CopyOnlyPhi0(front_gs_, q_moments_local_);
 
       // Inner iterations seem extremely wasteful. Set this to 1 iteration here for further
       // investigation.
@@ -215,22 +244,22 @@ PowerIterationKEigenSCDSA::Execute()
       {
         SetLBSScatterSourcePhi0(epsilon_k, false, true);
 
-        auto Ss = CopyOnlyPhi0(front_gs_, q_moments_local_);
+        auto Ss0 = CopyOnlyPhi0(front_gs_, q_moments_local_);
 
         // Solve the diffusion system
-        diffusion_solver_->Assemble_b(Ss + Sfaux + Ss_res - Sf0_ell);
+        diffusion_solver_->Assemble_b(Ss0 + Sf0_aux + Ss0_res - Sf0_ell);
         diffusion_solver_->Solve(epsilon_kp1, true);
 
         epsilon_k = epsilon_kp1;
       }
 
-      ProjectBackPhi0(front_gs_, epsilon_kp1 + phi0_lph_ip1, phi_old_local_);
+      ProjectBackPhi0(front_gs_, epsilon_kp1 + phi0_star, phi_old_local_);
 
-      double production_kp1 = lbs_solver_.ComputeFissionProduction(phi_old_local_);
+      double production_kp1 = lbs_solver.ComputeFissionProduction(phi_old_local_);
 
       lambda_kp1 = production_kp1 / (production_k / lambda_k);
 
-      const double lambda_change = std::fabs(1.0 - lambda_kp1 / lambda_k);
+      const double lambda_change = std::fabs(lambda_kp1 / lambda_k - 1.0);
       if (accel_pi_verbose_ >= 1)
         log.Log() << "PISCDSA iteration " << k << " lambda " << lambda_kp1 << " lambda change "
                   << lambda_change;
@@ -243,18 +272,18 @@ PowerIterationKEigenSCDSA::Execute()
       production_k = production_kp1;
     } // acceleration
 
-    ProjectBackPhi0(front_gs_, epsilon_kp1 + phi0_lph_ip1, phi_new_local_);
-    lbs_solver_.GSScopedCopyPrimarySTLvectors(front_gs_, phi_new_local_, phi_old_local_);
+    ProjectBackPhi0(front_gs_, epsilon_kp1 + phi0_star, phi_new_local_);
+    LBSVecOps::GSScopedCopyPrimarySTLvectors(
+      lbs_solver, front_gs_, PhiSTLOption::PHI_NEW, PhiSTLOption::PHI_OLD);
 
-    const double production = lbs_solver_.ComputeFissionProduction(phi_old_local_);
-    lbs_solver_.ScalePhiVector(PhiSTLOption::PHI_OLD, lambda_kp1 / production);
+    const double production = lbs_solver.ComputeFissionProduction(phi_old_local_);
+    LBSVecOps::ScalePhiVector(lbs_solver, PhiSTLOption::PHI_OLD, lambda_kp1 / production);
 
     // Recompute k-eigenvalue
     k_eff_ = lambda_kp1;
-    double reactivity = (k_eff_ - 1.0) / k_eff_;
 
     // Check convergence, bookkeeping
-    k_eff_change = fabs(k_eff_ - k_eff_prev) / k_eff_;
+    k_eff_change = std::fabs(k_eff_ / k_eff_prev - 1.0);
     k_eff_prev = k_eff_;
     nit += 1;
 
@@ -262,13 +291,14 @@ PowerIterationKEigenSCDSA::Execute()
       converged = true;
 
     // Print iteration summary
-    if (lbs_solver_.Options().verbose_outer_iterations)
+    if (lbs_solver.Options().verbose_outer_iterations)
     {
       std::stringstream k_iter_info;
       k_iter_info << program_timer.GetTimeString() << " "
                   << "  Iteration " << std::setw(5) << nit << "  k_eff " << std::setw(11)
                   << std::setprecision(7) << k_eff_ << "  k_eff change " << std::setw(12)
-                  << k_eff_change << "  reactivity " << std::setw(10) << reactivity * 1e5;
+                  << k_eff_change << "  reactivity " << std::setw(10)
+                  << (k_eff_ - 1.0) / k_eff_ * 1e5;
       if (converged)
         k_iter_info << " CONVERGED\n";
 
@@ -283,16 +313,16 @@ PowerIterationKEigenSCDSA::Execute()
   log.Log() << "\n";
   log.Log() << "        Final k-eigenvalue    :        " << std::setprecision(7) << k_eff_;
   log.Log() << "        Final change          :        " << std::setprecision(6) << k_eff_change
-            << " (Number of Sweeps:" << front_wgs_context_->counter_applications_of_inv_op_ << ")"
+            << " (Number of Sweeps:" << front_wgs_context_->counter_applications_of_inv_op << ")"
             << "\n";
 
-  if (lbs_solver_.Options().use_precursors)
+  if (lbs_solver.Options().use_precursors)
   {
-    lbs_solver_.ComputePrecursors();
-    Scale(lbs_solver_.PrecursorsNewLocal(), 1.0 / k_eff_);
+    lbs_solver.ComputePrecursors();
+    Scale(lbs_solver.PrecursorsNewLocal(), 1.0 / k_eff_);
   }
 
-  lbs_solver_.UpdateFieldFunctions();
+  lbs_solver.UpdateFieldFunctions();
 
   log.Log() << "LinearBoltzmann::KEigenvalueSolver execution completed\n\n";
 }
@@ -305,8 +335,8 @@ PowerIterationKEigenSCDSA::CopyOnlyPhi0(const LBSGroupset& groupset,
   const auto& diff_sdm = diffusion_solver_->SpatialDiscretization();
   const auto& diff_uk_man = diffusion_solver_->UnknownStructure();
   const auto& phi_uk_man = lbs_solver_.UnknownManager();
-  const int gsi = groupset.groups_.front().id_;
-  const size_t gss = groupset.groups_.size();
+  const int gsi = groupset.groups.front().id;
+  const size_t gss = groupset.groups.size();
   const size_t diff_num_local_dofs = requires_ghosts_
                                        ? diff_sdm.GetNumLocalAndGhostDOFs(diff_uk_man)
                                        : diff_sdm.GetNumLocalDOFs(diff_uk_man);
@@ -325,7 +355,7 @@ PowerIterationKEigenSCDSA::CopyOnlyPhi0(const LBSGroupset& groupset,
     const auto& cell_mapping = lbs_sdm.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
 
-    for (size_t i = 0; i < num_nodes; i++)
+    for (size_t i = 0; i < num_nodes; ++i)
     {
       const int64_t diff_phi_map = diff_sdm.MapDOFLocal(cell, i, diff_uk_man, 0, 0);
       const int64_t lbs_phi_map = lbs_sdm.MapDOFLocal(cell, i, phi_uk_man, 0, gsi);
@@ -333,7 +363,7 @@ PowerIterationKEigenSCDSA::CopyOnlyPhi0(const LBSGroupset& groupset,
       double* output_mapped = &output_phi_local[diff_phi_map];
       const double* phi_in_mapped = &phi_data[lbs_phi_map];
 
-      for (size_t g = 0; g < gss; g++)
+      for (size_t g = 0; g < gss; ++g)
       {
         output_mapped[g] = phi_in_mapped[g];
       } // for g
@@ -352,8 +382,8 @@ PowerIterationKEigenSCDSA::ProjectBackPhi0(const LBSGroupset& groupset,
   const auto& diff_sdm = diffusion_solver_->SpatialDiscretization();
   const auto& diff_uk_man = diffusion_solver_->UnknownStructure();
   const auto& phi_uk_man = lbs_solver_.UnknownManager();
-  const int gsi = groupset.groups_.front().id_;
-  const size_t gss = groupset.groups_.size();
+  const int gsi = groupset.groups.front().id;
+  const size_t gss = groupset.groups.size();
   const size_t diff_num_local_dofs = requires_ghosts_
                                        ? diff_sdm.GetNumLocalAndGhostDOFs(diff_uk_man)
                                        : diff_sdm.GetNumLocalDOFs(diff_uk_man);
@@ -365,7 +395,7 @@ PowerIterationKEigenSCDSA::ProjectBackPhi0(const LBSGroupset& groupset,
     const auto& cell_mapping = lbs_sdm.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
 
-    for (size_t i = 0; i < num_nodes; i++)
+    for (size_t i = 0; i < num_nodes; ++i)
     {
       const int64_t diff_phi_map = diff_sdm.MapDOFLocal(cell, i, diff_uk_man, 0, 0);
       const int64_t lbs_phi_map = lbs_sdm.MapDOFLocal(cell, i, phi_uk_man, 0, gsi);
@@ -373,7 +403,7 @@ PowerIterationKEigenSCDSA::ProjectBackPhi0(const LBSGroupset& groupset,
       const double* input_mapped = &input[diff_phi_map];
       double* output_mapped = &output[lbs_phi_map];
 
-      for (int g = 0; g < gss; g++)
+      for (int g = 0; g < gss; ++g)
         output_mapped[g] = input_mapped[g];
     } // for dof
   }   // for cell
@@ -390,7 +420,7 @@ PowerIterationKEigenSCDSA::MakePWLDVecGhostCommInfo(const SpatialDiscretization&
 
   log.Log() << "Number of global dofs" << num_globl_dofs;
 
-  const size_t num_unknowns = uk_man.unknowns_.size();
+  const size_t num_unknowns = uk_man.unknowns.size();
 
   // Build a list of global ids
   std::set<int64_t> global_dof_ids_set;
@@ -407,7 +437,7 @@ PowerIterationKEigenSCDSA::MakePWLDVecGhostCommInfo(const SpatialDiscretization&
     {
       for (size_t u = 0; u < num_unknowns; ++u)
       {
-        const size_t num_comps = uk_man.unknowns_[u].num_components_;
+        const size_t num_comps = uk_man.unknowns[u].num_components;
         for (size_t c = 0; c < num_comps; ++c)
         {
           const int64_t dof_map = sdm.MapDOF(cell, i, uk_man, u, c);
@@ -452,7 +482,7 @@ PowerIterationKEigenSCDSA::NodallyAveragedPWLDVector(
 
   const auto& grid = pwld_sdm.Grid();
 
-  const size_t num_unknowns = uk_man.unknowns_.size();
+  const size_t num_unknowns = uk_man.unknowns.size();
 
   const size_t num_cfem_local_dofs = pwlc_sdm.GetNumLocalAndGhostDOFs(uk_man);
 
@@ -472,7 +502,7 @@ PowerIterationKEigenSCDSA::NodallyAveragedPWLDVector(
     {
       for (size_t u = 0; u < num_unknowns; ++u)
       {
-        const size_t num_components = uk_man.unknowns_[u].num_components_;
+        const size_t num_components = uk_man.unknowns[u].num_components;
         for (size_t c = 0; c < num_components; ++c)
         {
           const int64_t dof_dfem_map = pwld_sdm.MapDOFLocal(cell, i, uk_man, u, c);
@@ -489,10 +519,10 @@ PowerIterationKEigenSCDSA::NodallyAveragedPWLDVector(
       }   // for unknown u
     }     // for node i
 
-    for (const auto& face : cell.faces_)
-      if (face.has_neighbor_)
-        if (not grid.IsCellLocal(face.neighbor_id_))
-          for (const uint64_t vid : face.vertex_ids_)
+    for (const auto& face : cell.faces)
+      if (face.has_neighbor)
+        if (not grid.IsCellLocal(face.neighbor_id))
+          for (const uint64_t vid : face.vertex_ids)
             partition_bndry_vertex_id_set.insert(vid);
   } // for local cell
 
@@ -507,12 +537,12 @@ PowerIterationKEigenSCDSA::NodallyAveragedPWLDVector(
 
     for (size_t i = 0; i < num_nodes; ++i)
     {
-      if (vid_set.find(cell.vertex_ids_[i]) == vid_set.end())
+      if (vid_set.find(cell.vertex_ids[i]) == vid_set.end())
         continue;
 
       for (size_t u = 0; u < num_unknowns; ++u)
       {
-        const size_t num_components = uk_man.unknowns_[u].num_components_;
+        const size_t num_components = uk_man.unknowns[u].num_components;
         for (size_t c = 0; c < num_components; ++c)
         {
           const int64_t dof_dfem_map_globl = pwld_sdm.MapDOF(cell, i, uk_man, u, c);
@@ -550,7 +580,7 @@ PowerIterationKEigenSCDSA::NodallyAveragedPWLDVector(
     {
       for (size_t u = 0; u < num_unknowns; ++u)
       {
-        const size_t num_components = uk_man.unknowns_[u].num_components_;
+        const size_t num_components = uk_man.unknowns[u].num_components;
         for (size_t c = 0; c < num_components; ++c)
         {
           const int64_t dof_dfem_map = pwld_sdm.MapDOFLocal(cell, i, uk_man, u, c);

@@ -86,7 +86,7 @@ SimTest91_PWLD(const InputParameters&)
   const auto& m_ell_em_map = quadrature->GetMomentToHarmonicsIndexMap();
 
   const size_t num_moments = m_ell_em_map.size();
-  const size_t num_dirs = quadrature->omegas_.size();
+  const size_t num_dirs = quadrature->omegas.size();
 
   opensn::log.Log() << "End Set/Get params." << std::endl;
   opensn::log.Log() << "Num Moments: " << num_moments << std::endl;
@@ -122,7 +122,7 @@ SimTest91_PWLD(const InputParameters&)
   // Make material source term
   for (const auto& cell : grid.local_cells)
   {
-    const auto& cc = cell.centroid_;
+    const auto& cc = cell.centroid;
     const auto& cell_mapping = sdm.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
 
@@ -139,12 +139,10 @@ SimTest91_PWLD(const InputParameters&)
 
   // Precompute cell matrices
   using MatVec3 = std::vector<std::vector<Vector3>>;
-  using MatDbl = std::vector<std::vector<double>>;
-  using VecMatDbl = std::vector<MatDbl>;
 
   std::vector<MatVec3> cell_Gmatrices;
-  std::vector<MatDbl> cell_Mmatrices;
-  std::vector<VecMatDbl> cell_faceMmatrices;
+  std::vector<DenseMatrix<double>> cell_Mmatrices;
+  std::vector<std::vector<DenseMatrix<double>>> cell_faceMmatrices;
 
   for (const auto& cell : grid.local_cells)
   {
@@ -153,7 +151,7 @@ SimTest91_PWLD(const InputParameters&)
     const auto fe_vol_data = cell_mapping.MakeVolumetricFiniteElementData();
 
     MatVec3 IntV_shapeI_gradshapeJ(num_nodes, std::vector<Vector3>(num_nodes, Vector3(0, 0, 0)));
-    MatDbl IntV_shapeI_shapeJ(num_nodes, std::vector<double>(num_nodes, 0.0));
+    DenseMatrix<double> IntV_shapeI_shapeJ(num_nodes, num_nodes, 0.0);
 
     for (unsigned int i = 0; i < num_nodes; ++i)
       for (unsigned int j = 0; j < num_nodes; ++j)
@@ -162,23 +160,23 @@ SimTest91_PWLD(const InputParameters&)
           IntV_shapeI_gradshapeJ[i][j] +=
             fe_vol_data.ShapeValue(i, qp) * fe_vol_data.ShapeGrad(j, qp) * fe_vol_data.JxW(qp);
 
-          IntV_shapeI_shapeJ[i][j] +=
+          IntV_shapeI_shapeJ(i, j) +=
             fe_vol_data.ShapeValue(i, qp) * fe_vol_data.ShapeValue(j, qp) * fe_vol_data.JxW(qp);
         } // for qp
 
     cell_Gmatrices.push_back(std::move(IntV_shapeI_gradshapeJ));
     cell_Mmatrices.push_back(std::move(IntV_shapeI_shapeJ));
 
-    const size_t num_faces = cell.faces_.size();
-    VecMatDbl faces_Mmatrices;
+    const size_t num_faces = cell.faces.size();
+    std::vector<DenseMatrix<double>> faces_Mmatrices;
     for (size_t f = 0; f < num_faces; ++f)
     {
       const auto fe_srf_data = cell_mapping.MakeSurfaceFiniteElementData(f);
-      MatDbl IntS_shapeI_shapeJ(num_nodes, std::vector<double>(num_nodes, 0.0));
+      DenseMatrix<double> IntS_shapeI_shapeJ(num_nodes, num_nodes, 0.0);
       for (unsigned int i = 0; i < num_nodes; ++i)
         for (unsigned int j = 0; j < num_nodes; ++j)
           for (const auto& qp : fe_srf_data.QuadraturePointIndices())
-            IntS_shapeI_shapeJ[i][j] +=
+            IntS_shapeI_shapeJ(i, j) +=
               fe_srf_data.ShapeValue(i, qp) * fe_srf_data.ShapeValue(j, qp) * fe_srf_data.JxW(qp);
 
       faces_Mmatrices.push_back(std::move(IntS_shapeI_shapeJ));
@@ -216,29 +214,29 @@ SimTest91_PWLD(const InputParameters&)
   {
     const auto cell_global_id = ijk_mapping.MapNDtoLin(ijk[1], ijk[0], ijk[2]);
     const auto& cell = grid.cells[cell_global_id];
-    const auto cell_local_id = cell.local_id_;
+    const auto cell_local_id = cell.local_id;
     const auto& cell_mapping = sdm.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
-    const size_t num_faces = cell.faces_.size();
+    const size_t num_faces = cell.faces.size();
 
     const std::vector<double> zero_vector(num_groups, 0.0);
 
     const auto& G = cell_Gmatrices[cell_local_id];
     const auto& M = cell_Mmatrices[cell_local_id];
 
-    MatDbl A(num_nodes, std::vector<double>(num_nodes, 0.0));
-    MatDbl b(num_groups, std::vector<double>(num_nodes, 0.0));
+    DenseMatrix<double> A(num_nodes, num_nodes, 0.0);
+    std::vector<Vector<double>> b(num_groups, Vector<double>(num_nodes, 0.0));
 
     // Gradient matrix
     for (size_t i = 0; i < num_nodes; ++i)
       for (size_t j = 0; j < num_nodes; ++j)
-        A[i][j] = omega.Dot(G[i][j]);
+        A(i, j) = omega.Dot(G[i][j]);
 
     // Surface integrals
     for (size_t f = 0; f < num_faces; ++f)
     {
-      const auto& face = cell.faces_[f];
-      const double mu = omega.Dot(face.normal_);
+      const auto& face = cell.faces[f];
+      const double mu = omega.Dot(face.normal);
 
       if (mu < 0.0)
       {
@@ -253,18 +251,18 @@ SimTest91_PWLD(const InputParameters&)
             const int j = cell_mapping.MapFaceNode(f, fj);
 
             const double* upwind_psi = zero_vector.data();
-            if (face.has_neighbor_)
+            if (face.has_neighbor)
             {
-              const auto& adj_cell = grid.cells[face.neighbor_id_];
-              const int aj = cell_adj_mapping[cell.local_id_][f][fj];
+              const auto& adj_cell = grid.cells[face.neighbor_id];
+              const int aj = cell_adj_mapping[cell.local_id][f][fj];
               const int64_t ajmap = sdm.MapDOFLocal(adj_cell, aj, psi_uk_man, d, 0);
               upwind_psi = &psi_old[ajmap];
             }
 
-            const double mu_Nij = -mu * M_surf[i][j];
-            A[i][j] += mu_Nij;
+            const double mu_Nij = -mu * M_surf(i, j);
+            A(i, j) += mu_Nij;
             for (int g = 0; g < num_groups; ++g)
-              b[g][i] += upwind_psi[g] * mu_Nij;
+              b[g](i) += upwind_psi[g] * mu_Nij;
           } // for fj
         }   // for fi
       }     // if internal incident face
@@ -281,28 +279,28 @@ SimTest91_PWLD(const InputParameters&)
         double temp_src = 0.0;
         for (size_t m = 0; m < num_moments; ++m)
         {
-          const int64_t dof_map = sdm.MapDOFLocal(cell, i, phi_uk_man, m, g);
+          auto dof_map = sdm.MapDOFLocal(cell, i, phi_uk_man, m, g);
           temp_src += m2d[m][d] * source_moments[dof_map];
         } // for m
         source[i] = temp_src;
       } // for i
 
       // Mass Matrix and Source
-      const double sigma_tg = sigma_t[g];
+      auto sigma_tg = sigma_t[g];
       for (int i = 0; i < num_nodes; ++i)
       {
         double temp = 0.0;
         for (int j = 0; j < num_nodes; ++j)
         {
-          const double Mij = M[i][j];
-          Atemp[i][j] = A[i][j] + Mij * sigma_tg;
+          auto Mij = M(i, j);
+          Atemp(i, j) = A(i, j) + Mij * sigma_tg;
           temp += Mij * source[j];
         } // for j
-        b[g][i] += temp;
+        b[g](i) += temp;
       } // for i
 
       // Solve system
-      GaussElimination(Atemp, b[g], static_cast<int>(num_nodes));
+      GaussElimination(Atemp, b[g], num_nodes);
     } // for g
 
     // Accumulate flux-moments
@@ -313,7 +311,7 @@ SimTest91_PWLD(const InputParameters&)
       {
         const int64_t dof_map = sdm.MapDOFLocal(cell, i, phi_uk_man, m, 0);
         for (size_t g = 0; g < num_groups; ++g)
-          phi_new[dof_map + g] += wn_d2m * b[g][i];
+          phi_new[dof_map + g] += wn_d2m * b[g](i);
       }
     }
 
@@ -322,7 +320,7 @@ SimTest91_PWLD(const InputParameters&)
     {
       const int64_t dof_map = sdm.MapDOFLocal(cell, i, psi_uk_man, d, 0);
       for (size_t g = 0; g < num_groups; ++g)
-        psi_old[dof_map + g] = b[g][i];
+        psi_old[dof_map + g] = b[g](i);
     }
   };
 
@@ -331,8 +329,8 @@ SimTest91_PWLD(const InputParameters&)
   {
     for (size_t d = 0; d < num_dirs; ++d)
     {
-      const auto& omega = quadrature->omegas_[d];
-      const auto& weight = quadrature->weights_[d];
+      const auto& omega = quadrature->omegas[d];
+      const auto& weight = quadrature->weights[d];
 
       std::vector<int64_t> iorder, jorder, korder;
       if (omega.x > 0.0)

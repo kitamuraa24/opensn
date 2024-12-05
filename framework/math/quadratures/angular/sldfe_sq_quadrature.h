@@ -5,8 +5,8 @@
 
 #include "framework/math/quadratures/angular/angular_quadrature.h"
 #include "framework/math/quadratures/gausslegendre_quadrature.h"
-#include "framework/math/dynamic_vector.h"
-#include "framework/math/dynamic_matrix.h"
+#include "framework/math/vector.h"
+#include "framework/math/dense_matrix.h"
 #include "framework/mesh/mesh.h"
 #include "framework/math/math.h"
 #include <vector>
@@ -17,7 +17,7 @@ namespace opensn
 namespace SimplifiedLDFESQ
 {
 struct SphericalQuadrilateral;
-struct FUNCTION_WEIGHT_FROM_RHO;
+struct FunctionWeightFromRho;
 class Quadrature;
 
 /**
@@ -63,8 +63,8 @@ public:
     ISOLATED,
     //    MULTI_VARIATE_SECANT
   };
-  QuadraturePointOptimization qp_optimization_type_ = QuadraturePointOptimization::EMPIRICAL;
-  std::string output_filename_prefix_;
+  QuadraturePointOptimization qp_optimization_type = QuadraturePointOptimization::EMPIRICAL;
+  std::string output_filename_prefix;
 
 private:
   /// Inscribed cude side length
@@ -74,13 +74,13 @@ private:
   std::vector<SphericalQuadrilateral> initial_octant_SQs_;
 
 public:
-  std::vector<SphericalQuadrilateral> deployed_SQs_;
+  std::vector<SphericalQuadrilateral> deployed_SQs;
 
 private:
   std::vector<std::vector<SphericalQuadrilateral>> deployed_SQs_history_;
 
 public:
-  friend struct FUNCTION_WEIGHT_FROM_RHO;
+  friend struct FunctionWeightFromRho;
   Quadrature() : AngularQuadrature(AngularQuadratureType::SLDFESQ) {}
 
   virtual ~Quadrature() {}
@@ -122,7 +122,7 @@ private:
   /// Integrates shape functions to produce weights.
   static std::array<double, 4>
   IntegrateLDFEShapeFunctions(const SphericalQuadrilateral& sq,
-                              std::array<DynamicVector<double>, 4>& shape_coeffs,
+                              std::array<Vector<double>, 4>& shape_coeffs,
                               const std::vector<Vector3>& legendre_qpoints,
                               const std::vector<double>& legendre_qweights);
 
@@ -163,27 +163,27 @@ private:
  * This is a utility function that encapsulates all the necessary functionality to determine shape
  * function coefficients and integrate accross a spherical quadrilateral.
  */
-struct SimplifiedLDFESQ::FUNCTION_WEIGHT_FROM_RHO
+struct SimplifiedLDFESQ::FunctionWeightFromRho
 {
   Quadrature& sldfesq;
   Vector3& centroid_xy_tilde;
   std::array<Vector3, 4>& radii_vectors_xy_tilde;
   SphericalQuadrilateral& sq;
 
-  std::array<DynamicVector<double>, 4> rhs;
-  DynamicMatrix<double> A;
-  DynamicMatrix<double> A_inv;
-  std::array<DynamicVector<double>, 4> c_coeffs;
+  std::array<Vector<double>, 4> rhs;
+  DenseMatrix<double> A;
+  DenseMatrix<double> A_inv;
+  std::array<Vector<double>, 4> c_coeffs;
   /// Legendre quadrature points
   std::vector<Vector3>& lqp;
   /// Legendre quadrature weights
   std::vector<double>& lqw;
 
-  FUNCTION_WEIGHT_FROM_RHO(SimplifiedLDFESQ::Quadrature& sldfesq,
-                           Vector3& centroid_xy_tilde,
-                           std::array<Vector3, 4>& radii_vectors_xy_tilde,
-                           SphericalQuadrilateral& sq,
-                           GaussLegendreQuadrature& legendre_quadrature)
+  FunctionWeightFromRho(SimplifiedLDFESQ::Quadrature& sldfesq,
+                        Vector3& centroid_xy_tilde,
+                        std::array<Vector3, 4>& radii_vectors_xy_tilde,
+                        SphericalQuadrilateral& sq,
+                        GaussLegendreQuadrature& legendre_quadrature)
     : sldfesq(sldfesq),
       centroid_xy_tilde(centroid_xy_tilde),
       radii_vectors_xy_tilde(radii_vectors_xy_tilde),
@@ -196,10 +196,10 @@ struct SimplifiedLDFESQ::FUNCTION_WEIGHT_FROM_RHO
     // Init RHS
     for (int i = 0; i < 4; ++i)
     {
-      rhs[i] = std::vector<double>(4);
-      c_coeffs[i] = std::vector<double>(4);
+      rhs[i] = Vector<double>(4);
+      c_coeffs[i] = Vector<double>(4, 0.);
       for (int j = 0; j < 4; ++j)
-        rhs[i][i] = 1.0;
+        rhs[i](i) = 1.0;
     }
   }
 
@@ -207,27 +207,27 @@ struct SimplifiedLDFESQ::FUNCTION_WEIGHT_FROM_RHO
    * Computes the quadrature point locations from rho, followed by the shape-function coefficients
    * and then the integral of the shape function to get the weights.
    */
-  std::array<double, 4> operator()(const DynamicVector<double>& rho)
+  std::array<double, 4> operator()(const Vector<double>& rho)
   {
     // Determine qpoints from rho
     std::array<Vector3, 4> qpoints;
     for (int i = 0; i < 4; ++i)
     {
-      auto xy_tilde = centroid_xy_tilde + rho[i] * radii_vectors_xy_tilde[i];
+      auto xy_tilde = centroid_xy_tilde + rho(i) * radii_vectors_xy_tilde[i];
       auto xyz_prime = sq.rotation_matrix * xy_tilde + sq.translation_vector;
       qpoints[i] = xyz_prime.Normalized();
     }
 
     // Assemble A
     for (int i = 0; i < 4; ++i)
-      A[i] = {1.0, qpoints[i][0], qpoints[i][1], qpoints[i][2]};
+      A.SetRow(i, Vector<double>({1.0, qpoints[i][0], qpoints[i][1], qpoints[i][2]}));
 
     // Compute A-inverse
-    A_inv = Inverse(A.elements_);
+    A_inv = Inverse(A);
 
     // Compute coefficients
     for (int i = 0; i < 4; ++i)
-      c_coeffs[i] = A_inv * rhs[i];
+      c_coeffs[i] = Mult(A_inv, rhs[i]);
 
     return sldfesq.IntegrateLDFEShapeFunctions(sq, c_coeffs, lqp, lqw);
   }

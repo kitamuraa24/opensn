@@ -63,7 +63,7 @@ lbs_block = {
       angular_quadrature_handle = pquad,
       angle_aggregation_num_subsets = 1,
       groupset_num_subsets = 1,
-      inner_linear_method = "gmres",
+      inner_linear_method = "petsc_gmres",
       l_abs_tol = 1.0e-8,
       l_max_its = 300,
       gmres_restart_interval = 100,
@@ -116,5 +116,5 @@ log.Log(LOG_0, string.format("Max-value2=%.5e", maxval))
 
 --############################################### Exports
 if master_export == nil then
-  ExportFieldFunctionToVTKG(fflist[1], "ZPhi3D", "Phi")
+  fieldfunc.ExportToVTK(fflist[1], "ZPhi3D", "Phi")
 end

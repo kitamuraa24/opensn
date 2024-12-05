@@ -3,11 +3,9 @@
 
 #pragma once
 
-#include "framework/math/nonlinear_solver/nonlinear_solver_context.h"
-
 #include "modules/linear_boltzmann_solvers/lbs_solver/lbs_solver.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/iterative_methods/snes_k_residual_func_context.h"
-
+#include "framework/math/nonlinear_solver/nonlinear_solver_context.h"
 #include <vector>
 #include <cstdint>
 
@@ -18,13 +16,14 @@ class LBSSolver;
 
 struct NLKEigenAGSContext : public NonLinearSolverContext
 {
-  LBSSolver& lbs_solver_;
-  KResidualFunctionContext kresid_func_context_;
+  LBSSolver& lbs_solver;
+  KResidualFunctionContext kresid_func_context;
 
   std::vector<int> groupset_ids;
 
   explicit NLKEigenAGSContext(LBSSolver& lbs_solver)
-    : lbs_solver_(lbs_solver), kresid_func_context_({lbs_solver.TextName(), 1.0})
+    : lbs_solver(lbs_solver), kresid_func_context({lbs_solver.Name(), 1.0})
+
   {
   }
 

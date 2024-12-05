@@ -2,10 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "modules/linear_boltzmann_solvers/discrete_ordinates_adjoint_solver/lbs_adjoint.h"
-
 #include "framework/math/math.h"
 #include "framework/math/serial_newton_iteration/serial_newton_iteration.h"
-
 #include "framework/runtime.h"
 #include "framework/logging/log.h"
 
@@ -49,30 +47,32 @@ MakeExpRepFromP1(const std::array<double, 4>& P1_moments, bool verbose)
     }
 
     /**Function evaluation at vector-x.*/
-    std::vector<double> F(const std::vector<double>& x) const override
+    Vector<double> F(const Vector<double>& x) const override
     {
       assert(x.size() == 2);
-      const double a = x[0];
-      const double b = x[1];
+      const double a = x(0);
+      const double b = x(1);
       const double FOUR_PI = 4.0 * M_PI;
 
-      double size_J = Vec2Norm({J_x, J_y, J_z});
+      double size_J = L2Norm({J_x, J_y, J_z});
 
-      return {(FOUR_PI / b) * exp(a) * sinh(b) - 1.0,
-              (FOUR_PI / b / b) * exp(a) * (b * cosh(b) - sinh(b)) - size_J};
+      return Vector<double>((FOUR_PI / b) * exp(a) * sinh(b) - 1.0,
+                            (FOUR_PI / b / b) * exp(a) * (b * cosh(b) - sinh(b)) - size_J);
     }
     /**Jacobian evaluation at vector-x.*/
-    MatDbl J(const std::vector<double>& x) const override
+    DenseMatrix<double> J(const Vector<double>& x) const override
     {
       assert(x.size() == 2);
-      const double a = x[0];
-      const double b = x[1];
+      const double a = x(0);
+      const double b = x(1);
       const double FOUR_PI = 4.0 * M_PI;
 
-      return {
-        {(FOUR_PI / b) * exp(a) * sinh(b), (FOUR_PI / b / b) * exp(a) * (b * cosh(b) - sinh(b))},
-        {(FOUR_PI / b / b) * exp(a) * (b * cosh(b) - sinh(b)),
-         (FOUR_PI / b / b / b) * exp(a) * ((b * b + 2) * sinh(b) - 2 * b * cosh(b))}};
+      DenseMatrix<double> m(2, 2);
+      m(0, 0) = (FOUR_PI / b) * exp(a) * sinh(b);
+      m(0, 1) = (FOUR_PI / b / b) * exp(a) * (b * cosh(b) - sinh(b));
+      m(1, 0) = (FOUR_PI / b / b) * exp(a) * (b * cosh(b) - sinh(b));
+      m(1, 1) = (FOUR_PI / b / b / b) * exp(a) * ((b * b + 2) * sinh(b) - 2 * b * cosh(b));
+      return m;
     }
   };
 
@@ -83,7 +83,7 @@ MakeExpRepFromP1(const std::array<double, 4>& P1_moments, bool verbose)
   double J_z = P1_moments[3];
 
   // Compute initial ratio size_J/phi
-  double size_J_i = Vec2Norm({J_x, J_y, J_z});
+  double size_J_i = L2Norm({J_x, J_y, J_z});
   double ratio_i = size_J_i / phi;
 
   if (phi < 1.0e-10 or ratio_i > 0.9)
@@ -99,7 +99,7 @@ MakeExpRepFromP1(const std::array<double, 4>& P1_moments, bool verbose)
     J_z /= phi;
   }
 
-  double size_J_f = Vec2Norm({J_x, J_y, J_z});
+  double size_J_f = L2Norm({J_x, J_y, J_z});
   double ratio_f = size_J_f;
 
   if (verbose)
@@ -129,10 +129,11 @@ MakeExpRepFromP1(const std::array<double, 4>& P1_moments, bool verbose)
   else
   {
     CustomF custom_function({J_x, J_y, J_z});
-    auto solution = NewtonIteration(custom_function, {1.0, 0.1}, 100, 1.0e-8, verbose);
+    auto solution =
+      NewtonIteration(custom_function, Vector<double>(1.0, 0.1), 100, 1.0e-8, verbose);
 
-    double a = solution[0];
-    double b = solution[1];
+    double a = solution(0);
+    double b = solution(1);
 
     if (verbose)
     {

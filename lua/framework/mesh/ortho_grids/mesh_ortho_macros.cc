@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "lua/framework/lua.h"
+#include "lua/framework/mesh/ortho_grids/mesh_ortho_macros.h"
+#include "lua/framework/console/console.h"
 #include "framework/data_types/varying.h"
 #include "framework/mesh/mesh_continuum/mesh_continuum.h"
 #include "framework/runtime.h"
 #include "framework/logging/log.h"
 #include "framework/utils/timer.h"
-#include "lua/framework/mesh/ortho_grids/mesh_ortho_macros.h"
-#include "lua/framework/console/console.h"
 
 using namespace opensn;
 
@@ -37,11 +37,11 @@ MeshSetupOrthogonalBoundaries(lua_State* L)
 
   for (auto& cell : vol_cont->local_cells)
   {
-    for (auto& face : cell.faces_)
+    for (auto& face : cell.faces)
     {
-      if (not face.has_neighbor_)
+      if (not face.has_neighbor)
       {
-        Vector3& n = face.normal_;
+        Vector3& n = face.normal;
 
         std::string boundary_name;
         if (n.Dot(ihat) < -0.999)
@@ -59,7 +59,7 @@ MeshSetupOrthogonalBoundaries(lua_State* L)
 
         uint64_t bndry_id = vol_cont->MakeBoundaryID(boundary_name);
 
-        face.neighbor_id_ = bndry_id;
+        face.neighbor_id = bndry_id;
 
         vol_cont->GetBoundaryIDMap()[bndry_id] = boundary_name;
       }

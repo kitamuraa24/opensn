@@ -38,6 +38,7 @@ option(OPENSN_WITH_LUA "Build with lua support" ON)
 # dependencies
 find_package(MPI REQUIRED)
 find_package(HDF5 REQUIRED COMPONENTS C HL)
+find_package(Boost REQUIRED)
 
 if(OPENSN_WITH_LUA)
     find_package(Lua 5.3 REQUIRED)
@@ -105,10 +106,12 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     list(APPEND OPENSN_CXX_FLAGS "-pedantic")
     list(APPEND OPENSN_CXX_FLAGS "-Wall")
     list(APPEND OPENSN_CXX_FLAGS "-Wno-unused-variable")
+    list(APPEND OPENSN_CXX_FLAGS "-Wno-c11-extensions")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang")
     list(APPEND OPENSN_CXX_FLAGS "-pedantic")
     list(APPEND OPENSN_CXX_FLAGS "-Wall")
     list(APPEND OPENSN_CXX_FLAGS "-Wno-unused-variable")
+    list(APPEND OPENSN_CXX_FLAGS "-Wno-c11-extensions")
 elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     list(APPEND OPENSN_CXX_FLAGS "-pedantic")
     list(APPEND OPENSN_CXX_FLAGS "-Wall")
@@ -141,6 +144,7 @@ target_include_directories(libopensn
     $<BUILD_INTERFACE:${HDF5_INCLUDE_DIRS}>
     $<BUILD_INTERFACE:${caliper_INCLUDE_DIR}>
     $<BUILD_INTERFACE:${PETSC_INCLUDE_DIR}>
+    $<BUILD_INTERFACE:${Boost_INCLUDE_DIRS}>
 )
 
 target_link_libraries(libopensn

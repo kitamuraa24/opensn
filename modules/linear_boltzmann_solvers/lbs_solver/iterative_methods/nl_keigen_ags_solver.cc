@@ -2,18 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "modules/linear_boltzmann_solvers/lbs_solver/iterative_methods/nl_keigen_ags_solver.h"
-
 #include "modules/linear_boltzmann_solvers/lbs_solver/iterative_methods/snes_k_monitor.h"
-
 #include "modules/linear_boltzmann_solvers/lbs_solver/iterative_methods/nl_keigen_ags_residual_func.h"
-
+#include "modules/linear_boltzmann_solvers/lbs_solver/lbs_vecops.h"
 #include "framework/math/petsc_utils/petsc_utils.h"
-
 #include "framework/runtime.h"
 #include "framework/logging/log.h"
-
 #include <petscsnes.h>
-
 #include <iomanip>
 
 namespace opensn
@@ -39,9 +34,9 @@ NLKEigenvalueAGSSolver::PreSetupCallback()
 {
   auto nl_context_ptr = GetNLKAGSContextPtr(context_ptr_, __PRETTY_FUNCTION__);
 
-  auto& lbs_solver = nl_context_ptr->lbs_solver_;
+  auto& lbs_solver = nl_context_ptr->lbs_solver;
   for (auto& groupset : lbs_solver.Groupsets())
-    nl_context_ptr->groupset_ids.push_back(groupset.id_);
+    nl_context_ptr->groupset_ids.push_back(groupset.id);
 }
 
 void
@@ -49,15 +44,15 @@ NLKEigenvalueAGSSolver::SetMonitor()
 {
   auto nl_context_ptr = GetNLKAGSContextPtr(context_ptr_, __PRETTY_FUNCTION__);
 
-  auto& lbs_solver = nl_context_ptr->lbs_solver_;
+  auto& lbs_solver = nl_context_ptr->lbs_solver;
   if (lbs_solver.Options().verbose_outer_iterations)
-    SNESMonitorSet(nl_solver_, &KEigenSNESMonitor, &nl_context_ptr->kresid_func_context_, nullptr);
+    SNESMonitorSet(nl_solver_, &KEigenSNESMonitor, &nl_context_ptr->kresid_func_context, nullptr);
 
   if (lbs_solver.Options().verbose_inner_iterations)
   {
     KSP ksp;
     SNESGetKSP(nl_solver_, &ksp);
-    KSPMonitorSet(ksp, &KEigenKSPMonitor, &nl_context_ptr->kresid_func_context_, nullptr);
+    KSPMonitorSet(ksp, &KEigenKSPMonitor, &nl_context_ptr->kresid_func_context, nullptr);
   }
 }
 
@@ -66,18 +61,18 @@ NLKEigenvalueAGSSolver::SetSystemSize()
 {
   auto nl_context_ptr = GetNLKAGSContextPtr(context_ptr_, __PRETTY_FUNCTION__);
 
-  auto& lbs_solver = nl_context_ptr->lbs_solver_;
+  auto& lbs_solver = nl_context_ptr->lbs_solver;
   auto sizes = lbs_solver.GetNumPhiIterativeUnknowns();
 
   num_local_dofs_ = static_cast<int64_t>(sizes.first);
-  num_globl_dofs_ = static_cast<int64_t>(sizes.second);
+  num_global_dofs_ = static_cast<int64_t>(sizes.second);
 }
 
 void
 NLKEigenvalueAGSSolver::SetSystem()
 {
   // Create the vectors
-  x_ = CreateVector(num_local_dofs_, num_globl_dofs_);
+  x_ = CreateVector(num_local_dofs_, num_global_dofs_);
   VecDuplicate(x_, &r_);
 }
 
@@ -86,7 +81,7 @@ NLKEigenvalueAGSSolver::SetFunction()
 {
   auto nl_context_ptr = GetNLKAGSContextPtr(context_ptr_, __PRETTY_FUNCTION__);
 
-  SNESSetFunction(nl_solver_, r_, NLKEigenResidualFunction, &nl_context_ptr->kresid_func_context_);
+  SNESSetFunction(nl_solver_, r_, NLKEigenResidualFunction, &nl_context_ptr->kresid_func_context);
 }
 
 void
@@ -101,10 +96,11 @@ NLKEigenvalueAGSSolver::SetInitialGuess()
 {
   auto nl_context_ptr = GetNLKAGSContextPtr(context_ptr_, __PRETTY_FUNCTION__);
 
-  auto& lbs_solver = nl_context_ptr->lbs_solver_;
+  auto& lbs_solver = nl_context_ptr->lbs_solver;
   const auto& groupset_ids = nl_context_ptr->groupset_ids;
 
-  lbs_solver.SetMultiGSPETScVecFromPrimarySTLvector(groupset_ids, x_, PhiSTLOption::PHI_OLD);
+  LBSVecOps::SetMultiGSPETScVecFromPrimarySTLvector(
+    lbs_solver, groupset_ids, x_, PhiSTLOption::PHI_OLD);
 }
 
 void
@@ -112,15 +108,15 @@ NLKEigenvalueAGSSolver::PostSolveCallback()
 {
   auto nl_context_ptr = GetNLKAGSContextPtr(context_ptr_, __PRETTY_FUNCTION__);
 
-  auto& lbs_solver = nl_context_ptr->lbs_solver_;
+  auto& lbs_solver = nl_context_ptr->lbs_solver;
 
   // Unpack solution
   const auto& groups = lbs_solver.Groups();
-  lbs_solver.SetPrimarySTLvectorFromGroupScopedPETScVec(
-    groups.front().id_, groups.back().id_, x_, lbs_solver.PhiOldLocal());
+  LBSVecOps::SetPrimarySTLvectorFromGroupScopedPETScVec(
+    lbs_solver, groups.front().id, groups.back().id, x_, PhiSTLOption::PHI_NEW);
 
   // Compute final k_eff
-  double k_eff = lbs_solver.ComputeFissionProduction(lbs_solver.PhiOldLocal());
+  double k_eff = lbs_solver.ComputeFissionProduction(lbs_solver.PhiNewLocal());
 
   PetscInt number_of_func_evals;
   SNESGetNumberFunctionEvals(nl_solver_, &number_of_func_evals);

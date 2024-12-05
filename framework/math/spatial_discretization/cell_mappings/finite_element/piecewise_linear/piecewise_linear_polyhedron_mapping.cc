@@ -15,31 +15,31 @@ PieceWiseLinearPolyhedronMapping::PieceWiseLinearPolyhedronMapping(
   const TetrahedraQuadrature& volume_quadrature,
   const TriangleQuadrature& surface_quadrature)
   : PieceWiseLinearBaseMapping(
-      ref_grid, polyh_cell, polyh_cell.vertex_ids_.size(), MakeFaceNodeMapping(polyh_cell)),
+      ref_grid, polyh_cell, polyh_cell.vertex_ids.size(), MakeFaceNodeMapping(polyh_cell)),
     volume_quadrature_(volume_quadrature),
     surface_quadrature_(surface_quadrature)
 {
   // Assign cell centre
-  const Vector3& vcc = polyh_cell.centroid_;
-  alphac_ = 1.0 / static_cast<double>(polyh_cell.vertex_ids_.size());
+  const Vector3& vcc = polyh_cell.centroid;
+  alphac_ = 1.0 / static_cast<double>(polyh_cell.vertex_ids.size());
 
   // For each face
-  size_t num_faces = polyh_cell.faces_.size();
+  size_t num_faces = polyh_cell.faces.size();
   face_data_.reserve(num_faces);
   face_betaf_.reserve(num_faces);
-  for (size_t f = 0; f < num_faces; f++)
+  for (size_t f = 0; f < num_faces; ++f)
   {
-    const CellFace& face = polyh_cell.faces_[f];
+    const CellFace& face = polyh_cell.faces[f];
     FEface_data face_f_data;
 
-    face_f_data.normal = face.normal_;
+    face_f_data.normal = face.normal;
 
-    face_betaf_.push_back(1.0 / static_cast<double>(face.vertex_ids_.size()));
+    face_betaf_.push_back(1.0 / static_cast<double>(face.vertex_ids.size()));
 
-    const Vector3& vfc = face.centroid_;
+    const Vector3& vfc = face.centroid;
 
     // For each edge
-    const size_t num_edges = face.vertex_ids_.size();
+    const size_t num_edges = face.vertex_ids.size();
     face_f_data.sides.reserve(num_edges);
     for (size_t e = 0; e < num_edges; ++e)
     {
@@ -47,9 +47,9 @@ PieceWiseLinearPolyhedronMapping::PieceWiseLinearPolyhedronMapping(
 
       // Assign vertices of tetrahedron
       size_t ep1 = (e < (num_edges - 1)) ? e + 1 : 0;
-      uint64_t v0index = face.vertex_ids_[e];
-      uint64_t v1index = face.vertex_ids_[ep1];
-      side_data.v_index.resize(2, -1);
+      uint64_t v0index = face.vertex_ids[e];
+      uint64_t v1index = face.vertex_ids[ep1];
+      side_data.v_index.resize(2);
       side_data.v_index[0] = v0index;
       side_data.v_index[1] = v1index;
 
@@ -69,7 +69,7 @@ PieceWiseLinearPolyhedronMapping::PieceWiseLinearPolyhedronMapping(
       // First we compute the rotation matrix which will rotate
       // any vector in natural coordinates to the same reference
       // frame as the current face.
-      Vector3 normal = face.normal_ * -1.0;
+      Vector3 normal = face.normal * -1.0;
       Vector3 tangent = v02.Cross(normal);
       tangent = tangent / tangent.Norm();
       Vector3 binorm = v02 / v02.Norm();
@@ -127,24 +127,24 @@ PieceWiseLinearPolyhedronMapping::PieceWiseLinearPolyhedronMapping(
   // which the side belongs and consequently allows
   // the determination of Nf. Nc is always evaluated
   // so no mapping is needed.
-  for (int i = 0; i < num_nodes_; i++)
+  for (int i = 0; i < num_nodes_; ++i)
   {
     FEnodeMap newNodeMap;
-    for (size_t f = 0; f < face_data_.size(); f++)
+    for (size_t f = 0; f < face_data_.size(); ++f)
     {
       FEnodeFaceMap newFaceMap;
-      for (size_t s = 0; s < face_data_[f].sides.size(); s++)
+      for (size_t s = 0; s < face_data_[f].sides.size(); ++s)
       {
         FEnodeSideMap newSideMap;
         newSideMap.part_of_face = false;
         const uint64_t s0 = face_data_[f].sides[s].v_index[0];
         const uint64_t s1 = face_data_[f].sides[s].v_index[1];
-        if (polyh_cell.vertex_ids_[i] == s0)
+        if (polyh_cell.vertex_ids[i] == s0)
         {
           newSideMap.index = 0;
           newSideMap.part_of_face = true;
         }
-        else if (polyh_cell.vertex_ids_[i] == s1)
+        else if (polyh_cell.vertex_ids[i] == s1)
         {
           newSideMap.index = 2;
           newSideMap.part_of_face = true;
@@ -152,9 +152,9 @@ PieceWiseLinearPolyhedronMapping::PieceWiseLinearPolyhedronMapping(
         else
         {
           newSideMap.index = -1;
-          for (size_t v = 0; v < polyh_cell.faces_[f].vertex_ids_.size(); v++)
+          for (size_t v = 0; v < polyh_cell.faces[f].vertex_ids.size(); ++v)
           {
-            if (polyh_cell.vertex_ids_[i] == polyh_cell.faces_[f].vertex_ids_[v])
+            if (polyh_cell.vertex_ids[i] == polyh_cell.faces[f].vertex_ids[v])
             {
               newSideMap.part_of_face = true;
               break;
@@ -170,7 +170,7 @@ PieceWiseLinearPolyhedronMapping::PieceWiseLinearPolyhedronMapping(
 }
 
 double
-PieceWiseLinearPolyhedronMapping::TetShape(uint32_t index, const Vector3& qpoint, bool on_surface)
+PieceWiseLinearPolyhedronMapping::TetShape(int index, const Vector3& qpoint, bool on_surface)
 {
   double value = 0.0;
 
@@ -195,7 +195,7 @@ PieceWiseLinearPolyhedronMapping::TetShape(uint32_t index, const Vector3& qpoint
 }
 
 double
-PieceWiseLinearPolyhedronMapping::TetGradShape_x(const uint32_t index)
+PieceWiseLinearPolyhedronMapping::TetGradShape_x(const int index)
 {
   double value = 0.0;
   if (index == 0)
@@ -219,7 +219,7 @@ PieceWiseLinearPolyhedronMapping::TetGradShape_x(const uint32_t index)
 }
 
 double
-PieceWiseLinearPolyhedronMapping::TetGradShape_y(const uint32_t index)
+PieceWiseLinearPolyhedronMapping::TetGradShape_y(const int index)
 {
   double value = 0.0;
   if (index == 0)
@@ -243,7 +243,7 @@ PieceWiseLinearPolyhedronMapping::TetGradShape_y(const uint32_t index)
 }
 
 double
-PieceWiseLinearPolyhedronMapping::TetGradShape_z(const uint32_t index)
+PieceWiseLinearPolyhedronMapping::TetGradShape_z(const int index)
 {
   double value = 0.0;
   if (index == 0)
@@ -274,7 +274,7 @@ PieceWiseLinearPolyhedronMapping::FaceSideShape(uint32_t face_index,
                                                 bool on_surface) const
 {
   double value = 0.0;
-  int index = node_side_maps_[i].face_map[face_index].side_map[side_index].index;
+  auto index = node_side_maps_[i].face_map[face_index].side_map[side_index].index;
   double betaf = face_betaf_[face_index];
 
   value += TetShape(index, qpoint, on_surface);
@@ -296,7 +296,7 @@ PieceWiseLinearPolyhedronMapping::FaceSideGradShape_x(uint32_t face_index,
   double tetdfdx = 0.0;
   double tetdfdy = 0.0;
   double tetdfdz = 0.0;
-  int index = node_side_maps_[i].face_map[face_index].side_map[side_index].index;
+  auto index = node_side_maps_[i].face_map[face_index].side_map[side_index].index;
   double betaf = face_betaf_[face_index];
 
   tetdfdx += TetGradShape_x(index);
@@ -410,9 +410,9 @@ PieceWiseLinearPolyhedronMapping::FaceSideGradShape_z(uint32_t face_index,
 double
 PieceWiseLinearPolyhedronMapping::ShapeValue(const int i, const Vector3& xyz) const
 {
-  for (size_t f = 0; f < face_data_.size(); f++)
+  for (size_t f = 0; f < face_data_.size(); ++f)
   {
-    for (size_t s = 0; s < face_data_[f].sides.size(); s++)
+    for (size_t s = 0; s < face_data_[f].sides.size(); ++s)
     {
       // Map xyz to xi_eta_zeta
       const auto& p0 = ref_grid_.vertices[face_data_[f].sides[s].v_index[0]];
@@ -455,12 +455,12 @@ PieceWiseLinearPolyhedronMapping::ShapeValue(const int i, const Vector3& xyz) co
 
 void
 PieceWiseLinearPolyhedronMapping::ShapeValues(const Vector3& xyz,
-                                              std::vector<double>& shape_values) const
+                                              Vector<double>& shape_values) const
 {
-  shape_values.resize(num_nodes_, 0.0);
-  for (size_t f = 0; f < face_data_.size(); f++)
+  shape_values.Resize(num_nodes_, 0.0);
+  for (size_t f = 0; f < face_data_.size(); ++f)
   {
-    for (size_t s = 0; s < face_data_[f].sides.size(); s++)
+    for (size_t s = 0; s < face_data_[f].sides.size(); ++s)
     {
       auto& side_fe_info = face_data_[f].sides[s];
       // Map xyz to xi_eta_zeta
@@ -475,7 +475,7 @@ PieceWiseLinearPolyhedronMapping::ShapeValues(const Vector3& xyz,
       if ((xi >= -1.0e-12) and (eta >= -1.0e-12) and (zeta >= -1.0e-12) and
           ((xi + eta + zeta) <= (1.0 + 1.0e-12)))
       {
-        for (int i = 0; i < num_nodes_; i++)
+        for (int i = 0; i < num_nodes_; ++i)
         {
           auto side_map = node_side_maps_[i].face_map[f].side_map[s];
 
@@ -493,7 +493,7 @@ PieceWiseLinearPolyhedronMapping::ShapeValues(const Vector3& xyz,
             Nf = face_betaf_[f] * xi;
           }
 
-          shape_values[i] = Ni + Nf + Nc;
+          shape_values(i) = Ni + Nf + Nc;
         } // for dof
         return;
       } // if in tet
@@ -505,9 +505,9 @@ Vector3
 PieceWiseLinearPolyhedronMapping::GradShapeValue(const int i, const Vector3& xyz) const
 {
   Vector3 grad, gradr;
-  for (size_t f = 0; f < face_data_.size(); f++)
+  for (size_t f = 0; f < face_data_.size(); ++f)
   {
-    for (size_t s = 0; s < face_data_[f].sides.size(); s++)
+    for (size_t s = 0; s < face_data_[f].sides.size(); ++s)
     {
       // Map xyz to xi_eta_zeta
       const auto& p0 = ref_grid_.vertices[face_data_[f].sides[s].v_index[0]];
@@ -596,7 +596,7 @@ PieceWiseLinearPolyhedronMapping::MakeVolumetricFiniteElementData() const
 
   V_shape_value.reserve(num_nodes_);
   V_shape_grad.reserve(num_nodes_);
-  for (size_t i = 0; i < num_nodes_; i++)
+  for (size_t i = 0; i < num_nodes_; ++i)
   {
     std::vector<double> node_shape_value;
     std::vector<Vector3> node_shape_grad;
@@ -604,9 +604,9 @@ PieceWiseLinearPolyhedronMapping::MakeVolumetricFiniteElementData() const
     node_shape_value.reserve(ttl_num_vol_qpoints);
     node_shape_grad.reserve(ttl_num_vol_qpoints);
 
-    for (size_t f = 0; f < face_data_.size(); f++)
+    for (size_t f = 0; f < face_data_.size(); ++f)
     {
-      for (size_t s = 0; s < face_data_[f].sides.size(); s++)
+      for (size_t s = 0; s < face_data_[f].sides.size(); ++s)
       {
         for (const auto& qpoint : volume_quadrature_.qpoints)
         {
@@ -681,7 +681,7 @@ PieceWiseLinearPolyhedronMapping::MakeSurfaceFiniteElementData(size_t face_index
 
   F_shape_value.reserve(num_nodes_);
   F_shape_grad.reserve(num_nodes_);
-  for (size_t i = 0; i < num_nodes_; i++)
+  for (size_t i = 0; i < num_nodes_; ++i)
   {
     std::vector<double> node_shape_value;
     std::vector<Vector3> node_shape_grad;
@@ -689,7 +689,7 @@ PieceWiseLinearPolyhedronMapping::MakeSurfaceFiniteElementData(size_t face_index
     node_shape_value.reserve(ttl_num_face_qpoints);
     node_shape_grad.reserve(ttl_num_face_qpoints);
 
-    for (size_t s = 0; s < face_data_[f].sides.size(); s++)
+    for (size_t s = 0; s < face_data_[f].sides.size(); ++s)
     {
       for (const auto& qpoint : surface_quadrature_.qpoints)
       {

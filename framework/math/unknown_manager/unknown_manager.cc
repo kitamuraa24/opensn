@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 #include "framework/math/unknown_manager/unknown_manager.h"
-
 #include "framework/runtime.h"
 #include "framework/logging/log.h"
 
@@ -12,28 +11,26 @@ namespace opensn
 unsigned int
 UnknownManager::AddUnknown(UnknownType unk_type, unsigned int dimension)
 {
-  auto& log = Logger::GetInstance();
+  int last_unknown_end = -1;
+  if (not unknowns.empty())
+    last_unknown_end = unknowns.back().GetMapEnd();
 
-  unsigned int last_unknown_end = -1;
-  if (not unknowns_.empty())
-    last_unknown_end = unknowns_.back().GetMapEnd();
-
-  unsigned int new_unknown_index = unknowns_.size();
+  unsigned int new_unknown_index = unknowns.size();
 
   if (unk_type == UnknownType::SCALAR)
   {
-    unknowns_.emplace_back(UnknownType::SCALAR, 1, last_unknown_end + 1);
-    unknowns_.back().text_name_ = "Unknown_" + std::to_string(unknowns_.size() - 1);
+    unknowns.emplace_back(UnknownType::SCALAR, 1, last_unknown_end + 1);
+    unknowns.back().name = "Unknown_" + std::to_string(unknowns.size() - 1);
   }
   else if (unk_type == UnknownType::VECTOR_2)
   {
-    unknowns_.emplace_back(UnknownType::VECTOR_2, 2, last_unknown_end + 1);
-    unknowns_.back().text_name_ = "Unknown_" + std::to_string(unknowns_.size() - 1);
+    unknowns.emplace_back(UnknownType::VECTOR_2, 2, last_unknown_end + 1);
+    unknowns.back().name = "Unknown_" + std::to_string(unknowns.size() - 1);
   }
   else if (unk_type == UnknownType::VECTOR_3)
   {
-    unknowns_.emplace_back(UnknownType::VECTOR_3, 3, last_unknown_end + 1);
-    unknowns_.back().text_name_ = "Unknown_" + std::to_string(unknowns_.size() - 1);
+    unknowns.emplace_back(UnknownType::VECTOR_3, 3, last_unknown_end + 1);
+    unknowns.back().name = "Unknown_" + std::to_string(unknowns.size() - 1);
   }
   else if (unk_type == UnknownType::VECTOR_N)
   {
@@ -44,8 +41,8 @@ UnknownManager::AddUnknown(UnknownType unk_type, unsigned int dimension)
       Exit(EXIT_FAILURE);
     }
 
-    unknowns_.emplace_back(UnknownType::VECTOR_N, dimension, last_unknown_end + 1);
-    unknowns_.back().text_name_ = "Unknown_" + std::to_string(unknowns_.size() - 1);
+    unknowns.emplace_back(UnknownType::VECTOR_N, dimension, last_unknown_end + 1);
+    unknowns.back().name = "Unknown_" + std::to_string(unknowns.size() - 1);
   }
   else if (unk_type == UnknownType::TENSOR)
   {
@@ -69,33 +66,29 @@ UnknownManager::AddUnknown(UnknownType unk_type, unsigned int dimension)
 }
 
 unsigned int
-UnknownManager::MapUnknown(unsigned int unknown_id, unsigned int component) const
+UnknownManager::MapUnknown(int unknown_id, unsigned int component) const
 {
-  auto& log = Logger::GetInstance();
-
-  if (unknown_id < 0 or unknown_id >= unknowns_.size())
+  if (unknown_id < 0 or unknown_id >= unknowns.size())
   {
     log.LogAllError() << "UnknownManager failed call to MapUnknown " << unknown_id;
     Exit(EXIT_FAILURE);
   }
-  return unknowns_[unknown_id].GetMap(component);
+  return unknowns[unknown_id].GetMap(component);
 }
 
 unsigned int
 UnknownManager::GetTotalUnknownStructureSize() const
 {
-  if (unknowns_.empty())
+  if (unknowns.empty())
     return 0;
 
-  return unknowns_.back().GetMapEnd() + 1;
+  return unknowns.back().GetMapEnd() + 1;
 }
 
 void
-UnknownManager::SetUnknownNumOffBlockConnections(unsigned int unknown_id, int num_conn)
+UnknownManager::SetUnknownNumOffBlockConnections(int unknown_id, int num_conn)
 {
-  auto& log = Logger::GetInstance();
-
-  if (unknown_id < 0 or unknown_id >= unknowns_.size())
+  if (unknown_id < 0 or unknown_id >= unknowns.size())
   {
     log.LogAllError() << "UnknownManager failed call to SetUnknownNumOffBlockConnections,"
                          " illegal index. "
@@ -103,76 +96,70 @@ UnknownManager::SetUnknownNumOffBlockConnections(unsigned int unknown_id, int nu
     Exit(EXIT_FAILURE);
   }
 
-  for (auto& val : unknowns_[unknown_id].num_off_block_connections_)
+  for (auto& val : unknowns[unknown_id].num_off_block_connections)
     val = num_conn;
 }
 
 void
-UnknownManager::SetUnknownComponentNumOffBlockConnections(unsigned int unknown_id,
+UnknownManager::SetUnknownComponentNumOffBlockConnections(int unknown_id,
                                                           unsigned int component,
                                                           int num_conn)
 {
-  auto& log = Logger::GetInstance();
-
-  if (unknown_id < 0 or unknown_id >= unknowns_.size())
+  if (unknown_id < 0 or unknown_id >= unknowns.size())
   {
-    log.LogAllError() << "UnknownManager failed call to SetUnknownComponentTextName,"
+    log.LogAllError() << "UnknownManager failed call to SetUnknownComponentNumOffBlockConnections,"
                          " illegal unknown index. "
                       << unknown_id;
     Exit(EXIT_FAILURE);
   }
 
-  if (component < 0 or component >= unknowns_[unknown_id].num_components_)
+  if (component < 0 or component >= unknowns[unknown_id].num_components)
   {
-    log.LogAllError() << "UnknownManager failed call to SetUnknownComponentTextName,"
+    log.LogAllError() << "UnknownManager failed call to SetUnknownComponentNumOffBlockConnections,"
                          " illegal component index. "
                       << component;
     Exit(EXIT_FAILURE);
   }
 
-  unknowns_[unknown_id].num_off_block_connections_[component] = num_conn;
+  unknowns[unknown_id].num_off_block_connections[component] = num_conn;
 }
 
 void
-UnknownManager::SetUnknownTextName(unsigned int unknown_id, const std::string& text_name)
+UnknownManager::SetUnknownName(int unknown_id, const std::string& unk_name)
 {
-  auto& log = Logger::GetInstance();
-
-  if (unknown_id < 0 or unknown_id >= unknowns_.size())
+  if (unknown_id < 0 or unknown_id >= unknowns.size())
   {
-    log.LogAllError() << "UnknownManager failed call to SetUnknownTextName,"
+    log.LogAllError() << "UnknownManager failed call to SetUnknownName,"
                          " illegal index. "
                       << unknown_id;
     Exit(EXIT_FAILURE);
   }
 
-  unknowns_[unknown_id].text_name_ = text_name;
+  unknowns[unknown_id].name = unk_name;
 }
 
 void
-UnknownManager::SetUnknownComponentTextName(unsigned int unknown_id,
-                                            unsigned int component,
-                                            const std::string& text_name)
+UnknownManager::SetUnknownComponentName(int unknown_id,
+                                        unsigned int component,
+                                        const std::string& component_name)
 {
-  auto& log = Logger::GetInstance();
-
-  if (unknown_id < 0 or unknown_id >= unknowns_.size())
+  if (unknown_id < 0 or unknown_id >= unknowns.size())
   {
-    log.LogAllError() << "UnknownManager failed call to SetUnknownComponentTextName,"
+    log.LogAllError() << "UnknownManager failed call to SetUnknownComponentName,"
                          " illegal unknown index. "
                       << unknown_id;
     Exit(EXIT_FAILURE);
   }
 
-  if (component < 0 or component >= unknowns_[unknown_id].num_components_)
+  if (component < 0 or component >= unknowns[unknown_id].num_components)
   {
-    log.LogAllError() << "UnknownManager failed call to SetUnknownComponentTextName,"
+    log.LogAllError() << "UnknownManager failed call to SetUnknownComponentName,"
                          " illegal component index. "
                       << component;
     Exit(EXIT_FAILURE);
   }
 
-  unknowns_[unknown_id].component_text_names_[component] = text_name;
+  unknowns[unknown_id].component_names[component] = component_name;
 }
 
 } // namespace opensn

@@ -159,6 +159,9 @@ MeshGenerator::ComputeAndPrintStats(const MeshContinuum& grid)
   log.Log() << "\n" << outstr.str() << "\n\n";
 
   log.LogAllVerbose2() << opensn::mpi_comm.rank() << "Local cells=" << num_local_cells;
+
+  if (min_num_local_cells == 0)
+    throw std::runtime_error("Partitioning failed. At least one partition contains no cells.");
 }
 
 std::vector<int64_t>
@@ -195,7 +198,52 @@ MeshGenerator::PartitionMesh(const UnpartitionedMesh& input_umesh, int num_parti
   std::vector<int64_t> cell_pids =
     partitioner_->Partition(cell_graph, cell_centroids, num_partitions);
 
+  RebalancePartitions(cell_pids, num_partitions);
+
   return cell_pids;
+}
+
+void
+MeshGenerator::RebalancePartitions(std::vector<int64_t>& cell_pids, int num_partitions)
+{
+  // Count the number of cells in each partition
+  std::vector<int> cells_per_partition(num_partitions, 0);
+  for (int partition : cell_pids)
+    cells_per_partition[partition]++;
+
+  // Check if any partition has zero cells
+  if (std::none_of(cells_per_partition.begin(),
+                   cells_per_partition.end(),
+                   [](int count) { return count == 0; }))
+  {
+    return;
+  }
+
+  // Redistributed cells from heavy partitions
+  int total_cells = cell_pids.size();
+  int target = total_cells / num_partitions;
+
+  for (int partition = 0; partition < num_partitions; ++partition)
+  {
+    while (cells_per_partition[partition] > target)
+    {
+      auto it = std::min_element(cells_per_partition.begin(), cells_per_partition.end());
+      int min_partition = std::distance(cells_per_partition.begin(), it);
+      if (min_partition == partition or cells_per_partition[min_partition] >= target)
+        break;
+
+      for (auto& cell_pid : cell_pids)
+      {
+        if (cell_pid == partition)
+        {
+          cell_pid = min_partition;
+          cells_per_partition[partition]--;
+          cells_per_partition[min_partition]++;
+          break;
+        }
+      }
+    }
+  }
 }
 
 std::shared_ptr<MeshContinuum>
@@ -219,7 +267,7 @@ MeshGenerator::SetupMesh(std::shared_ptr<UnpartitionedMesh> input_umesh,
                             cell_pids[cell_globl_id],
                             STLVertexListHelper(input_umesh->Vertices()));
 
-      for (uint64_t vid : cell->vertex_ids_)
+      for (uint64_t vid : cell->vertex_ids)
         grid_ptr->vertices.Insert(vid, input_umesh->Vertices()[vid]);
 
       grid_ptr->cells.push_back(std::move(cell));
@@ -284,26 +332,26 @@ MeshGenerator::SetupCell(const UnpartitionedMesh::LightWeightCell& raw_cell,
                          const VertexListHelper& vertices)
 {
   auto cell = std::make_unique<Cell>(raw_cell.type, raw_cell.sub_type);
-  cell->centroid_ = raw_cell.centroid;
-  cell->global_id_ = global_id;
-  cell->partition_id_ = partition_id;
-  cell->material_id_ = raw_cell.material_id;
+  cell->centroid = raw_cell.centroid;
+  cell->global_id = global_id;
+  cell->partition_id = partition_id;
+  cell->material_id = raw_cell.material_id;
 
-  cell->vertex_ids_ = raw_cell.vertex_ids;
+  cell->vertex_ids = raw_cell.vertex_ids;
 
   size_t face_counter = 0;
   for (auto& raw_face : raw_cell.faces)
   {
     CellFace newFace;
 
-    newFace.has_neighbor_ = raw_face.has_neighbor;
-    newFace.neighbor_id_ = raw_face.neighbor;
+    newFace.has_neighbor = raw_face.has_neighbor;
+    newFace.neighbor_id = raw_face.neighbor;
 
-    newFace.vertex_ids_ = raw_face.vertex_ids;
+    newFace.vertex_ids = raw_face.vertex_ids;
     auto vfc = Vector3(0.0, 0.0, 0.0);
-    for (auto fvid : newFace.vertex_ids_)
+    for (auto fvid : newFace.vertex_ids)
       vfc = vfc + vertices.at(fvid);
-    newFace.centroid_ = vfc / static_cast<double>(newFace.vertex_ids_.size());
+    newFace.centroid = vfc / static_cast<double>(newFace.vertex_ids.size());
 
     if (cell->Type() == CellType::SLAB)
     {
@@ -311,9 +359,9 @@ MeshGenerator::SetupCell(const UnpartitionedMesh::LightWeightCell& raw_cell,
       // the normal is -khat. If it is the second face then
       // it is +khat.
       if (face_counter == 0)
-        newFace.normal_ = Vector3(0.0, 0.0, -1.0);
+        newFace.normal = Vector3(0.0, 0.0, -1.0);
       else
-        newFace.normal_ = Vector3(0.0, 0.0, 1.0);
+        newFace.normal = Vector3(0.0, 0.0, 1.0);
     }
     else if (cell->Type() == CellType::POLYGON)
     {
@@ -321,11 +369,11 @@ MeshGenerator::SetupCell(const UnpartitionedMesh::LightWeightCell& raw_cell,
       // the first vertex and form a vector with the face
       // centroid. The normal is then just khat
       // cross-product with this vector.
-      uint64_t fvid = newFace.vertex_ids_[0];
-      auto vec_vvc = vertices.at(fvid) - newFace.centroid_;
+      uint64_t fvid = newFace.vertex_ids[0];
+      auto vec_vvc = vertices.at(fvid) - newFace.centroid;
 
-      newFace.normal_ = Vector3(0.0, 0.0, 1.0).Cross(vec_vvc);
-      newFace.normal_.Normalize();
+      newFace.normal = Vector3(0.0, 0.0, 1.0).Cross(vec_vvc);
+      newFace.normal.Normalize();
     }
     else if (cell->Type() == CellType::POLYHEDRON)
     {
@@ -333,31 +381,31 @@ MeshGenerator::SetupCell(const UnpartitionedMesh::LightWeightCell& raw_cell,
       // which can be multifaceted. Here we need the
       // average normal over all the facets computed
       // using an area-weighted average.
-      const size_t num_face_verts = newFace.vertex_ids_.size();
+      const size_t num_face_verts = newFace.vertex_ids.size();
       double total_area = 0.0;
       for (size_t fv = 0; fv < num_face_verts; ++fv)
       {
         size_t fvp1 = (fv < (num_face_verts - 1)) ? fv + 1 : 0;
 
-        uint64_t fvid_m = newFace.vertex_ids_[fv];
-        uint64_t fvid_p = newFace.vertex_ids_[fvp1];
+        uint64_t fvid_m = newFace.vertex_ids[fv];
+        uint64_t fvid_p = newFace.vertex_ids[fvp1];
 
-        auto leg_m = vertices.at(fvid_m) - newFace.centroid_;
-        auto leg_p = vertices.at(fvid_p) - newFace.centroid_;
+        auto leg_m = vertices.at(fvid_m) - newFace.centroid;
+        auto leg_p = vertices.at(fvid_p) - newFace.centroid;
 
         auto vn = leg_m.Cross(leg_p);
 
         double area = 0.5 * vn.Norm();
         total_area += area;
 
-        newFace.normal_ = newFace.normal_ + area * vn.Normalized();
+        newFace.normal = newFace.normal + area * vn.Normalized();
       }
-      newFace.normal_ = newFace.normal_ / total_area;
-      newFace.normal_.Normalize();
+      newFace.normal = newFace.normal / total_area;
+      newFace.normal.Normalize();
     }
     ++face_counter;
 
-    cell->faces_.push_back(newFace);
+    cell->faces.push_back(newFace);
   }
 
   return cell;

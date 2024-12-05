@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 #include "framework/mesh/mesh_continuum/grid_face_histogram.h"
-
 #include "framework/runtime.h"
 #include "framework/logging/log.h"
 
@@ -18,7 +17,7 @@ GridFaceHistogram::NumberOfFaceHistogramBins() const
 size_t
 GridFaceHistogram::MapFaceHistogramBins(size_t num_face_verts) const
 {
-  size_t category_counter = -1;
+  int64_t category_counter = -1;
   for (auto category : face_categories_)
   {
     category_counter++;

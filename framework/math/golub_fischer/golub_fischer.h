@@ -40,15 +40,13 @@ namespace opensn
  * xn_wn.
  *
  * alpha and beta are the recusrion coefficients of the orthogonal polynomials described in [1].
- *
- * \author John Grissom (with guidance from Jan)
  */
 class GolubFischer
 {
 public:
-  std::vector<std::pair<double, double>> xn_wn_;
-  std::vector<double> alpha_;
-  std::vector<double> beta_;
+  std::vector<std::pair<double, double>> xn_wn;
+  std::vector<double> alpha;
+  std::vector<double> beta;
 
 public:
   /**

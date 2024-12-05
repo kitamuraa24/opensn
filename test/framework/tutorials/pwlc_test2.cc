@@ -69,8 +69,8 @@ SimTest04_PWLC(const InputParameters& params)
     const auto cell_node_xyzs = cell_mapping.GetNodeLocations();
 
     const size_t num_nodes = cell_mapping.NumNodes();
-    MatDbl Acell(num_nodes, std::vector<double>(num_nodes, 0.0));
-    std::vector<double> cell_rhs(num_nodes, 0.0);
+    DenseMatrix<double> Acell(num_nodes, num_nodes, 0.0);
+    Vector<double> cell_rhs(num_nodes, 0.0);
 
     for (size_t i = 0; i < num_nodes; ++i)
     {
@@ -82,23 +82,23 @@ SimTest04_PWLC(const InputParameters& params)
           entry_aij +=
             fe_vol_data.ShapeGrad(i, qp).Dot(fe_vol_data.ShapeGrad(j, qp)) * fe_vol_data.JxW(qp);
         } // for qp
-        Acell[i][j] = entry_aij;
+        Acell(i, j) = entry_aij;
       } // for j
       for (size_t qp : fe_vol_data.QuadraturePointIndices())
-        cell_rhs[i] += LuaCall<double>(L, "MMS_q", fe_vol_data.QPointXYZ(qp)) *
+        cell_rhs(i) += LuaCall<double>(L, "MMS_q", fe_vol_data.QPointXYZ(qp)) *
                        fe_vol_data.ShapeValue(i, qp) * fe_vol_data.JxW(qp);
     } // for i
 
     // Flag nodes for being on dirichlet boundary
     std::vector<bool> node_boundary_flag(num_nodes, false);
-    const size_t num_faces = cell.faces_.size();
+    const size_t num_faces = cell.faces.size();
     for (size_t f = 0; f < num_faces; ++f)
     {
-      const auto& face = cell.faces_[f];
-      if (face.has_neighbor_)
+      const auto& face = cell.faces[f];
+      if (face.has_neighbor)
         continue;
 
-      const size_t num_face_nodes = face.vertex_ids_.size();
+      const size_t num_face_nodes = face.vertex_ids.size();
       for (size_t fi = 0; fi < num_face_nodes; ++fi)
       {
         const uint i = cell_mapping.MapFaceNode(f, fi);
@@ -125,14 +125,14 @@ SimTest04_PWLC(const InputParameters& params)
         for (size_t j = 0; j < num_nodes; ++j)
         {
           if (not node_boundary_flag[j])
-            MatSetValue(A, imap[i], imap[j], Acell[i][j], ADD_VALUES);
+            MatSetValue(A, imap[i], imap[j], Acell(i, j), ADD_VALUES);
           else
           {
             auto bval = LuaCall<double>(L, "MMS_phi", cell_node_xyzs[j]);
-            VecSetValue(b, imap[i], -Acell[i][j] * bval, ADD_VALUES);
+            VecSetValue(b, imap[i], -Acell(i, j) * bval, ADD_VALUES);
           }
         } // for j
-        VecSetValue(b, imap[i], cell_rhs[i], ADD_VALUES);
+        VecSetValue(b, imap[i], cell_rhs(i), ADD_VALUES);
       }
     } // for i
   }   // for cell

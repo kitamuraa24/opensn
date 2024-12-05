@@ -10,11 +10,8 @@
 namespace lbs
 {
 
-/**
- * A transient neutral particle transport solver.
- *
- * \author Zachary Hardy.
- */
+/// A transient neutral particle transport solver.
+
 class DiscOrdTransientSolver : public DiscOrdKEigenvalueSolver
 {
 public:
@@ -55,7 +52,7 @@ protected:
   std::vector<double> fission_rate_local_;
 
 public:
-  explicit DiscOrdTransientSolver(const std::string& in_text_name);
+  explicit DiscOrdTransientSolver(const std::string& name);
 
   void Initialize() override;
   void Execute() override;

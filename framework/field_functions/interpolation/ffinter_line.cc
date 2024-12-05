@@ -42,13 +42,13 @@ FieldFunctionInterpolationLine::Initialize()
   local_cells_.reserve(estimated_local_size);
   for (const auto& cell : grid.local_cells)
   {
-    for (int p = 0; p < number_of_points_; p++)
+    for (int p = 0; p < number_of_points_; ++p)
     {
       auto& point = tmp_points[p];
       if (grid.CheckPointInsideCell(cell, point))
       {
         local_interpolation_points_.push_back(point);
-        local_cells_.push_back(cell.local_id_);
+        local_cells_.push_back(cell.local_id);
       }
     }
   }
@@ -79,13 +79,13 @@ FieldFunctionInterpolationLine::Execute()
     const auto& cell_mapping = sdm.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
 
-    std::vector<double> shape_function_vals(num_nodes, 0.0);
+    Vector<double> shape_function_vals(num_nodes, 0.0);
     cell_mapping.ShapeValues(point, shape_function_vals);
     double point_value = 0.0;
     for (size_t i = 0; i < num_nodes; ++i)
     {
       const int64_t imap = sdm.MapDOFLocal(cell, i, uk_man, uid, cid);
-      point_value += shape_function_vals[i] * field_data[imap];
+      point_value += shape_function_vals(i) * field_data[imap];
     }
     local_interpolation_values_[p] = point_value;
     local_max = std::max(point_value, local_max);
@@ -128,7 +128,7 @@ FieldFunctionInterpolationLine::ExportToCSV(std::string base_name)
 
   // Compute global size of coordinate and interpolation data and each location's offset
   std::vector<double> global_data;
-  std::vector<int> offsets;
+  std::vector<int> offsets(opensn::mpi_comm.size(), 0);
   int global_data_size = 0;
   if (opensn::mpi_comm.rank() == 0)
   {

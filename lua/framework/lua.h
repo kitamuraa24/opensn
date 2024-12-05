@@ -10,14 +10,14 @@ extern "C"
 #include <lauxlib.h>
 }
 
+#include "lua/framework/exceptions/invalid_lua_argument.h"
+#include "framework/parameters/parameter_block.h"
+#include "framework/math/math.h"
 #include <typeinfo>
 #include <string>
 #include <vector>
 #include <memory>
 #include <type_traits>
-#include "framework/parameters/parameter_block.h"
-#include "framework/math/math.h"
-#include "lua/framework/exceptions/invalid_lua_argument.h"
 
 /**
  * Posts a generalized error message indicating that the expected amount of arguments don't match
@@ -424,7 +424,7 @@ LuaArgAsType(lua_State* L, int index)
     std::vector<T, A> values;
     const size_t sz = lua_rawlen(L, index);
     values.resize(sz);
-    for (size_t i = 0; i < sz; i++)
+    for (size_t i = 0; i < sz; ++i)
     {
       LuaPush(L, i + 1);
       lua_gettable(L, index);

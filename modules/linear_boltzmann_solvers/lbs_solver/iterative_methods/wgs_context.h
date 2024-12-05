@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "framework/math/linear_solver/linear_solver_context.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/lbs_structs.h"
+#include "framework/math/linear_solver/linear_solver_context.h"
 #include <vector>
 #include <functional>
 #include <memory>
@@ -18,14 +18,6 @@ class LBSSolver;
 
 struct WGSContext : public LinearSolverContext
 {
-  LBSSolver& lbs_solver_;
-  LBSGroupset& groupset_;
-  const SetSourceFunction& set_source_function_;
-  SourceFlags lhs_src_scope_;
-  SourceFlags rhs_src_scope_;
-  bool log_info_ = true;
-  size_t counter_applications_of_inv_op_ = 0;
-
   WGSContext(LBSSolver& lbs_solver,
              LBSGroupset& groupset,
              const SetSourceFunction& set_source_function,
@@ -34,7 +26,9 @@ struct WGSContext : public LinearSolverContext
              bool log_info);
 
   virtual void PreSetupCallback(){};
+
   virtual void SetPreconditioner(KSP& solver){};
+
   virtual void PostSetupCallback(){};
 
   virtual void PreSolveCallback(){};
@@ -50,6 +44,14 @@ struct WGSContext : public LinearSolverContext
   virtual void ApplyInverseTransportOperator(SourceFlags scope) = 0;
 
   virtual void PostSolveCallback(){};
+
+  LBSSolver& lbs_solver;
+  LBSGroupset& groupset;
+  const SetSourceFunction& set_source_function;
+  SourceFlags lhs_src_scope;
+  SourceFlags rhs_src_scope;
+  bool log_info = true;
+  size_t counter_applications_of_inv_op = 0;
 };
 
 } // namespace opensn

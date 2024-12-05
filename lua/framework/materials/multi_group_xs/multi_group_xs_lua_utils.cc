@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 #include "lua/framework//materials/multi_group_xs/multi_group_xs_lua_utils.h"
+#include "lua/framework/console/console.h"
 #include "framework/materials/multi_group_xs/multi_group_xs.h"
 #include "framework/materials/material.h"
 #include "framework/logging/log.h"
-#include "lua/framework/console/console.h"
 #include "framework/runtime.h"
 #include <iostream>
 
@@ -96,8 +96,8 @@ MultiGroupXSPushLuaTable(lua_State* L, std::shared_ptr<MultiGroupXS> xs)
       {
         for (unsigned int g = 0; g < matrix.NumRows(); ++g)
         {
-          const auto& col_indices = matrix.rowI_indices_[g];
-          const auto& col_values = matrix.rowI_values_[g];
+          const auto& col_indices = matrix.rowI_indices[g];
+          const auto& col_values = matrix.rowI_values[g];
           size_t num_vals = col_values.size();
 
           LuaPush(L, g + 1);

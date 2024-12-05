@@ -56,9 +56,9 @@ public:
   template <typename T>
   struct STLVertexListHelper : public VertexListHelper
   {
-    explicit STLVertexListHelper(const T& list) : list_(list) {}
-    const Vector3& at(uint64_t vid) const override { return list_.at(vid); };
-    const T& list_;
+    explicit STLVertexListHelper(const T& list) : list(list) {}
+    const Vector3& at(uint64_t vid) const override { return list.at(vid); };
+    const T& list;
   };
 
 protected:
@@ -95,6 +95,17 @@ protected:
   const bool replicated_;
   std::vector<MeshGenerator*> inputs_;
   GraphPartitioner* partitioner_ = nullptr;
+
+private:
+  /**
+   * Rebalance partitions so that all partitions contain cells. If we find a partition
+   * that has zero cells, move cells from heavier partitions to the partition with zero
+   * cells. This procedure can easily destroy the spatial locality of the partitioning,
+   * so it is used as a last resort to keep the code from throwing an exception when it
+   * finds a partition with zero cells.
+   * \todo Explore more robust partitioners that can better distribute cells across available PEs.
+   */
+  void RebalancePartitions(std::vector<int64_t>& cell_pids, int num_partitions);
 };
 
 } // namespace opensn

@@ -3,11 +3,11 @@
 
 #include "modules/linear_boltzmann_solvers/lbs_solver/acceleration/diffusion_mip_solver.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/acceleration/acceleration.h"
+#include "modules/linear_boltzmann_solvers/lbs_solver/lbs_structs.h"
 #include "framework/mesh/mesh_continuum/mesh_continuum.h"
 #include "framework/math/spatial_discretization/finite_element/finite_element_data.h"
 #include "framework/math/spatial_discretization/spatial_discretization.h"
 #include "framework/math/functions/scalar_spatial_function.h"
-#include "modules/linear_boltzmann_solvers/lbs_solver/lbs_structs.h"
 #include "framework/runtime.h"
 #include "framework/logging/log.h"
 #include "framework/utils/timer.h"
@@ -28,7 +28,7 @@ DiffusionMIPSolver::SetReferenceSolutionFunction(std::shared_ptr<ScalarSpatialFu
   ref_solution_function_ = function;
 }
 
-DiffusionMIPSolver::DiffusionMIPSolver(std::string text_name,
+DiffusionMIPSolver::DiffusionMIPSolver(std::string name,
                                        const opensn::SpatialDiscretization& sdm,
                                        const UnknownManager& uk_man,
                                        std::map<uint64_t, BoundaryCondition> bcs,
@@ -36,7 +36,7 @@ DiffusionMIPSolver::DiffusionMIPSolver(std::string text_name,
                                        const std::vector<UnitCellMatrices>& unit_cell_matrices,
                                        const bool suppress_bcs,
                                        const bool verbose)
-  : DiffusionSolver(std::move(text_name),
+  : DiffusionSolver(std::move(name),
                     sdm,
                     uk_man,
                     std::move(bcs),
@@ -61,39 +61,45 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
   if (options.verbose)
     log.Log() << program_timer.GetTimeString() << " Starting assembly";
 
-  const size_t num_groups = uk_man_.unknowns_.front().num_components_;
+  const size_t num_groups = uk_man_.unknowns.front().num_components;
 
   VecSet(rhs_, 0.0);
 
   for (const auto& cell : grid_.local_cells)
   {
-    const size_t num_faces = cell.faces_.size();
+    const size_t num_faces = cell.faces.size();
     const auto& cell_mapping = sdm_.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
     const auto cc_nodes = cell_mapping.GetNodeLocations();
     const auto fe_vol_data = cell_mapping.MakeVolumetricFiniteElementData();
 
-    const auto& xs = mat_id_2_xs_map_.at(cell.material_id_);
+    const auto& xs = mat_id_2_xs_map_.at(cell.material_id);
 
+    DenseMatrix<double> cell_A(num_nodes, num_nodes);
+    Vector<double> cell_rhs(num_nodes);
+    Vector<int64_t> cell_idxs(num_nodes);
     // For component/group
     for (size_t g = 0; g < num_groups; ++g)
     {
+      cell_A.Set(0.);
+      cell_rhs.Set(0.);
+      for (size_t i = 0; i < num_nodes; ++i)
+        cell_idxs(i) = sdm_.MapDOF(cell, i, uk_man_, 0, g);
+
       // Get coefficient and nodal src
       const double Dg = xs.Dg[g];
       const double sigr_g = xs.sigR[g];
 
       std::vector<double> qg(num_nodes, 0.0);
-      for (size_t j = 0; j < num_nodes; j++)
+      for (size_t j = 0; j < num_nodes; ++j)
         qg[j] = q_vector[sdm_.MapDOFLocal(cell, j, uk_man_, 0, g)];
 
       // Assemble continuous terms
-      for (size_t i = 0; i < num_nodes; i++)
+      for (size_t i = 0; i < num_nodes; ++i)
       {
-        const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
         double entry_rhs_i = 0.0; // entry may accumulate over j
-        for (size_t j = 0; j < num_nodes; j++)
+        for (size_t j = 0; j < num_nodes; ++j)
         {
-          const int64_t jmap = sdm_.MapDOF(cell, j, uk_man_, 0, g);
           double entry_aij = 0.0;
           for (size_t qp : fe_vol_data.QuadraturePointIndices())
           {
@@ -107,7 +113,7 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
               entry_rhs_i += fe_vol_data.ShapeValue(i, qp) * fe_vol_data.ShapeValue(j, qp) *
                              fe_vol_data.JxW(qp) * qg[j];
           } // for qp
-          MatSetValue(A_, imap, jmap, entry_aij, ADD_VALUES);
+          cell_A(i, j) += entry_aij;
         } // for j
 
         if (source_function_)
@@ -117,28 +123,28 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
                            fe_vol_data.ShapeValue(i, qp) * fe_vol_data.JxW(qp);
         }
 
-        VecSetValue(rhs_, imap, entry_rhs_i, ADD_VALUES);
+        cell_rhs(i) += entry_rhs_i;
       } // for i
 
       // Assemble face terms
       for (size_t f = 0; f < num_faces; ++f)
       {
-        const auto& face = cell.faces_[f];
-        const auto& n_f = face.normal_;
+        const auto& face = cell.faces[f];
+        const auto& n_f = face.normal;
         const size_t num_face_nodes = cell_mapping.NumFaceNodes(f);
         const auto fe_srf_data = cell_mapping.MakeSurfaceFiniteElementData(f);
 
         const double hm = HPerpendicular(cell, f);
 
-        if (face.has_neighbor_)
+        if (face.has_neighbor)
         {
-          const auto& adj_cell = grid_.cells[face.neighbor_id_];
+          const auto& adj_cell = grid_.cells[face.neighbor_id];
           const auto& adj_cell_mapping = sdm_.GetCellMapping(adj_cell);
           const auto ac_nodes = adj_cell_mapping.GetNodeLocations();
           const size_t acf = MeshContinuum::MapCellFace(cell, adj_cell, f);
           const double hp = HPerpendicular(adj_cell, acf);
 
-          const auto& adj_xs = mat_id_2_xs_map_.at(adj_cell.material_id_);
+          const auto& adj_xs = mat_id_2_xs_map_.at(adj_cell.material_id);
           const double adj_Dg = adj_xs.Dg[g];
 
           // Compute kappa
@@ -150,27 +156,32 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
           if (cell.Type() == CellType::POLYHEDRON)
             kappa = fmax(options.penalty_factor * 2.0 * (adj_Dg / hp + Dg / hm) * 0.5, 0.25);
 
+          DenseMatrix<double> adj_A(num_nodes, num_face_nodes, 0.);
+          DenseMatrix<double> adj_AT(num_face_nodes, num_nodes, 0.);
+          Vector<int64_t> adj_idxs(num_face_nodes);
+          for (size_t fj = 0; fj < num_face_nodes; ++fj)
+          {
+            const auto jp =
+              MapFaceNodeDisc(cell, adj_cell, cc_nodes, ac_nodes, f, acf, fj); // j-plus
+            adj_idxs(fj) = sdm_.MapDOF(adj_cell, jp, uk_man_, 0, g);
+          }
+
           // Assembly penalty terms
           for (size_t fi = 0; fi < num_face_nodes; ++fi)
           {
             const int i = cell_mapping.MapFaceNode(f, fi);
-            const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
             for (size_t fj = 0; fj < num_face_nodes; ++fj)
             {
               const int jm = cell_mapping.MapFaceNode(f, fj); // j-minus
-              const int jp =
-                MapFaceNodeDisc(cell, adj_cell, cc_nodes, ac_nodes, f, acf, fj); // j-plus
-              const int64_t jmmap = sdm_.MapDOF(cell, jm, uk_man_, 0, g);
-              const int64_t jpmap = sdm_.MapDOF(adj_cell, jp, uk_man_, 0, g);
 
               double aij = 0.0;
               for (size_t qp : fe_srf_data.QuadraturePointIndices())
                 aij += kappa * fe_srf_data.ShapeValue(i, qp) * fe_srf_data.ShapeValue(jm, qp) *
                        fe_srf_data.JxW(qp);
 
-              MatSetValue(A_, imap, jmmap, aij, ADD_VALUES);
-              MatSetValue(A_, imap, jpmap, -aij, ADD_VALUES);
+              cell_A(i, jm) += aij;
+              adj_A(i, fj) -= aij;
             } // for fj
           }   // for fi
 
@@ -179,17 +190,11 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
           // Dk = 0.5* n dot nabla bk
 
           // 0.5*D* n dot (b_j^+ - b_j^-)*nabla b_i^-
-          for (int i = 0; i < num_nodes; i++)
+          for (int i = 0; i < num_nodes; ++i)
           {
-            const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
-
-            for (int fj = 0; fj < num_face_nodes; fj++)
+            for (int fj = 0; fj < num_face_nodes; ++fj)
             {
               const int jm = cell_mapping.MapFaceNode(f, fj); // j-minus
-              const int jp =
-                MapFaceNodeDisc(cell, adj_cell, cc_nodes, ac_nodes, f, acf, fj); // j-plus
-              const int64_t jmmap = sdm_.MapDOF(cell, jm, uk_man_, 0, g);
-              const int64_t jpmap = sdm_.MapDOF(adj_cell, jp, uk_man_, 0, g);
 
               Vector3 vec_aij;
               for (size_t qp : fe_srf_data.QuadraturePointIndices())
@@ -197,41 +202,51 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
                            fe_srf_data.JxW(qp);
               const double aij = -0.5 * Dg * n_f.Dot(vec_aij);
 
-              MatSetValue(A_, imap, jmmap, aij, ADD_VALUES);
-              MatSetValue(A_, imap, jpmap, -aij, ADD_VALUES);
+              cell_A(i, jm) += aij;
+              adj_A(i, fj) -= aij;
             } // for fj
           }   // for i
 
           // 0.5*D* n dot (b_i^+ - b_i^-)*nabla b_j^-
-          for (int fi = 0; fi < num_face_nodes; fi++)
+          for (int fi = 0; fi < num_face_nodes; ++fi)
           {
             const int im = cell_mapping.MapFaceNode(f, fi); // i-minus
-            const int ip =
-              MapFaceNodeDisc(cell, adj_cell, cc_nodes, ac_nodes, f, acf, fi); // i-plus
-            const int64_t immap = sdm_.MapDOF(cell, im, uk_man_, 0, g);
-            const int64_t ipmap = sdm_.MapDOF(adj_cell, ip, uk_man_, 0, g);
 
-            for (int j = 0; j < num_nodes; j++)
+            for (int j = 0; j < num_nodes; ++j)
             {
-              const int64_t jmap = sdm_.MapDOF(cell, j, uk_man_, 0, g);
-
               Vector3 vec_aij;
               for (size_t qp : fe_srf_data.QuadraturePointIndices())
                 vec_aij += fe_srf_data.ShapeValue(im, qp) * fe_srf_data.ShapeGrad(j, qp) *
                            fe_srf_data.JxW(qp);
               const double aij = -0.5 * Dg * n_f.Dot(vec_aij);
 
-              MatSetValue(A_, immap, jmap, aij, ADD_VALUES);
-              MatSetValue(A_, ipmap, jmap, -aij, ADD_VALUES);
+              cell_A(im, j) += aij;
+              adj_AT(fi, j) -= aij;
             } // for j
           }   // for fi
+
+          MatSetValues(A_,
+                       num_nodes,
+                       cell_idxs.data(),
+                       num_face_nodes,
+                       adj_idxs.data(),
+                       adj_A.data(),
+                       ADD_VALUES);
+
+          MatSetValues(A_,
+                       num_face_nodes,
+                       adj_idxs.data(),
+                       num_nodes,
+                       cell_idxs.data(),
+                       adj_AT.data(),
+                       ADD_VALUES);
 
         } // internal face
         else
         {
           BoundaryCondition bc;
-          if (bcs_.count(face.neighbor_id_) > 0)
-            bc = bcs_.at(face.neighbor_id_);
+          if (bcs_.count(face.neighbor_id) > 0)
+            bc = bcs_.at(face.neighbor_id);
 
           if (bc.type == BCType::DIRICHLET)
           {
@@ -250,12 +265,10 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
             for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               for (size_t fj = 0; fj < num_face_nodes; ++fj)
               {
                 const int jm = cell_mapping.MapFaceNode(f, fj);
-                const int64_t jmmap = sdm_.MapDOF(cell, jm, uk_man_, 0, g);
 
                 double aij = 0.0;
                 for (size_t qp : fe_srf_data.QuadraturePointIndices())
@@ -273,8 +286,8 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
                                     fe_srf_data.JxW(qp);
                 }
 
-                MatSetValue(A_, imap, jmmap, aij, ADD_VALUES);
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_A(i, jm) += aij;
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for fi
 
@@ -283,14 +296,10 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
             // Dk = n dot nabla bk
 
             // D* n dot (b_j^+ - b_j^-)*nabla b_i^-
-            for (size_t i = 0; i < num_nodes; i++)
+            for (size_t i = 0; i < num_nodes; ++i)
             {
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
-
-              for (size_t j = 0; j < num_nodes; j++)
+              for (size_t j = 0; j < num_nodes; ++j)
               {
-                const int64_t jmap = sdm_.MapDOF(cell, j, uk_man_, 0, g);
-
                 Vector3 vec_aij;
                 for (size_t qp : fe_srf_data.QuadraturePointIndices())
                   vec_aij += fe_srf_data.ShapeValue(j, qp) * fe_srf_data.ShapeGrad(i, qp) *
@@ -313,8 +322,8 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
                   aij_bc_value = -Dg * n_f.Dot(vec_aij_mms);
                 }
 
-                MatSetValue(A_, imap, jmap, aij, ADD_VALUES);
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_A(i, j) += aij;
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for i
           }     // Dirichlet BC
@@ -327,14 +336,13 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
             if (std::fabs(bval) < 1.0e-12)
               continue; // a and f assumed zero
 
-            for (size_t fi = 0; fi < num_face_nodes; fi++)
+            for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t ir = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               if (std::fabs(aval) >= 1.0e-12)
               {
-                for (size_t fj = 0; fj < num_face_nodes; fj++)
+                for (size_t fj = 0; fj < num_face_nodes; ++fj)
                 {
                   const int j = cell_mapping.MapFaceNode(f, fj);
                   const int64_t jr = sdm_.MapDOF(cell, j, uk_man_, 0, g);
@@ -345,7 +353,7 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
                            fe_srf_data.JxW(qp);
                   aij *= (aval / bval);
 
-                  MatSetValue(A_, ir, jr, aij, ADD_VALUES);
+                  cell_A(i, j) += aij;
                 } // for fj
               }   // if a nonzero
 
@@ -356,14 +364,18 @@ DiffusionMIPSolver::AssembleAand_b_wQpoints(const std::vector<double>& q_vector)
                   rhs_val += fe_srf_data.ShapeValue(i, qp) * fe_srf_data.JxW(qp);
                 rhs_val *= (fval / bval);
 
-                VecSetValue(rhs_, ir, rhs_val, ADD_VALUES);
+                cell_rhs(i) += rhs_val;
               } // if f nonzero
             }   // for fi
           }     // Robin BC
         }       // boundary face
       }         // for face
-    }           // for g
-  }             // for cell
+
+      MatSetValues(
+        A_, num_nodes, cell_idxs.data(), num_nodes, cell_idxs.data(), cell_A.data(), ADD_VALUES);
+      VecSetValues(rhs_, num_nodes, cell_idxs.data(), cell_rhs.data(), ADD_VALUES);
+    } // for g
+  }   // for cell
 
   MatAssemblyBegin(A_, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(A_, MAT_FINAL_ASSEMBLY);
@@ -405,31 +417,36 @@ DiffusionMIPSolver::Assemble_b_wQpoints(const std::vector<double>& q_vector)
 
   for (const auto& cell : grid_.local_cells)
   {
-    const size_t num_faces = cell.faces_.size();
+    const size_t num_faces = cell.faces.size();
     const auto& cell_mapping = sdm_.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
     const auto fe_vol_data = cell_mapping.MakeVolumetricFiniteElementData();
-    const size_t num_groups = uk_man_.unknowns_.front().num_components_;
+    const size_t num_groups = uk_man_.unknowns.front().num_components;
 
-    const auto& xs = mat_id_2_xs_map_.at(cell.material_id_);
+    const auto& xs = mat_id_2_xs_map_.at(cell.material_id);
 
+    Vector<double> cell_rhs(num_nodes);
+    Vector<int64_t> cell_idxs(num_nodes);
     // For component/group
     for (size_t g = 0; g < num_groups; ++g)
     {
+      cell_rhs.Set(0.);
+      for (size_t i = 0; i < num_nodes; ++i)
+        cell_idxs(i) = sdm_.MapDOF(cell, i, uk_man_, 0, g);
+
       // Get coefficient and nodal src
       const double Dg = xs.Dg[g];
 
       std::vector<double> qg(num_nodes, 0.0);
-      for (size_t j = 0; j < num_nodes; j++)
+      for (size_t j = 0; j < num_nodes; ++j)
         qg[j] = q_vector[sdm_.MapDOFLocal(cell, j, uk_man_, 0, g)];
 
       // Assemble continuous terms
-      for (size_t i = 0; i < num_nodes; i++)
+      for (size_t i = 0; i < num_nodes; ++i)
       {
-        const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
         double entry_rhs_i = 0.0; // entry may accumulate over j
         if (not source_function_)
-          for (size_t j = 0; j < num_nodes; j++)
+          for (size_t j = 0; j < num_nodes; ++j)
           {
             for (size_t qp : fe_vol_data.QuadraturePointIndices())
             {
@@ -444,24 +461,24 @@ DiffusionMIPSolver::Assemble_b_wQpoints(const std::vector<double>& q_vector)
                            fe_vol_data.ShapeValue(i, qp) * fe_vol_data.JxW(qp);
         }
 
-        VecSetValue(rhs_, imap, entry_rhs_i, ADD_VALUES);
+        cell_rhs(i) += entry_rhs_i;
       } // for i
 
       // Assemble face terms
       for (size_t f = 0; f < num_faces; ++f)
       {
-        const auto& face = cell.faces_[f];
-        const auto& n_f = face.normal_;
+        const auto& face = cell.faces[f];
+        const auto& n_f = face.normal;
         const size_t num_face_nodes = cell_mapping.NumFaceNodes(f);
         const auto fe_srf_data = cell_mapping.MakeSurfaceFiniteElementData(f);
 
         const double hm = HPerpendicular(cell, f);
 
-        if (not face.has_neighbor_ and not suppress_bcs_)
+        if (not face.has_neighbor and not suppress_bcs_)
         {
           BoundaryCondition bc;
-          if (bcs_.count(face.neighbor_id_) > 0)
-            bc = bcs_.at(face.neighbor_id_);
+          if (bcs_.count(face.neighbor_id) > 0)
+            bc = bcs_.at(face.neighbor_id);
 
           if (bc.type == BCType::DIRICHLET)
           {
@@ -480,7 +497,6 @@ DiffusionMIPSolver::Assemble_b_wQpoints(const std::vector<double>& q_vector)
             for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               for (size_t fj = 0; fj < num_face_nodes; ++fj)
               {
@@ -501,7 +517,7 @@ DiffusionMIPSolver::Assemble_b_wQpoints(const std::vector<double>& q_vector)
                                     fe_srf_data.JxW(qp);
                 }
 
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for fi
 
@@ -510,11 +526,9 @@ DiffusionMIPSolver::Assemble_b_wQpoints(const std::vector<double>& q_vector)
             // Dk = 0.5* n dot nabla bk
 
             // 0.5*D* n dot (b_j^+ - b_j^-)*nabla b_i^-
-            for (size_t i = 0; i < num_nodes; i++)
+            for (size_t i = 0; i < num_nodes; ++i)
             {
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
-
-              for (size_t j = 0; j < num_nodes; j++)
+              for (size_t j = 0; j < num_nodes; ++j)
               {
                 Vector3 vec_aij;
                 for (size_t qp : fe_srf_data.QuadraturePointIndices())
@@ -538,7 +552,7 @@ DiffusionMIPSolver::Assemble_b_wQpoints(const std::vector<double>& q_vector)
                   aij_bc_value = -Dg * n_f.Dot(vec_aij_mms);
                 }
 
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for i
           }     // Dirichlet BC
@@ -550,10 +564,9 @@ DiffusionMIPSolver::Assemble_b_wQpoints(const std::vector<double>& q_vector)
             if (std::fabs(bval) < 1.0e-12)
               continue; // a and f assumed zero
 
-            for (size_t fi = 0; fi < num_face_nodes; fi++)
+            for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t ir = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               if (std::fabs(fval) >= 1.0e-12)
               {
@@ -562,14 +575,15 @@ DiffusionMIPSolver::Assemble_b_wQpoints(const std::vector<double>& q_vector)
                   rhs_val += fe_srf_data.ShapeValue(i, qp) * fe_srf_data.JxW(qp);
                 rhs_val *= (fval / bval);
 
-                VecSetValue(rhs_, ir, rhs_val, ADD_VALUES);
+                cell_rhs(i) += rhs_val;
               } // if f nonzero
             }   // for fi
           }     // Robin BC
         }       // boundary face
       }         // for face
-    }           // for g
-  }             // for cell
+      VecSetValues(rhs_, num_nodes, cell_idxs.data(), cell_rhs.data(), ADD_VALUES);
+    } // for g
+  }   // for cell
 
   VecAssemblyBegin(rhs_);
   VecAssemblyEnd(rhs_);
@@ -597,57 +611,62 @@ DiffusionMIPSolver::AssembleAand_b(const std::vector<double>& q_vector)
   if (options.verbose)
     log.Log() << program_timer.GetTimeString() << " Starting assembly";
 
-  const size_t num_groups = uk_man_.unknowns_.front().num_components_;
+  const size_t num_groups = uk_man_.unknowns.front().num_components;
 
   VecSet(rhs_, 0.0);
   for (const auto& cell : grid_.local_cells)
   {
-    const size_t num_faces = cell.faces_.size();
+    const size_t num_faces = cell.faces.size();
     const auto& cell_mapping = sdm_.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
     const auto cc_nodes = cell_mapping.GetNodeLocations();
-    const auto& unit_cell_matrices = unit_cell_matrices_[cell.local_id_];
+    const auto& unit_cell_matrices = unit_cell_matrices_[cell.local_id];
 
     const auto& intV_gradshapeI_gradshapeJ = unit_cell_matrices.intV_gradshapeI_gradshapeJ;
     const auto& intV_shapeI_shapeJ = unit_cell_matrices.intV_shapeI_shapeJ;
 
-    const auto& xs = mat_id_2_xs_map_.at(cell.material_id_);
+    const auto& xs = mat_id_2_xs_map_.at(cell.material_id);
 
+    DenseMatrix<double> cell_A(num_nodes, num_nodes);
+    Vector<double> cell_rhs(num_nodes);
+    Vector<int64_t> cell_idxs(num_nodes);
     for (size_t g = 0; g < num_groups; ++g)
     {
+      cell_A.Set(0.);
+      cell_rhs.Set(0.);
+      for (size_t i = 0; i < num_nodes; ++i)
+        cell_idxs(i) = sdm_.MapDOF(cell, i, uk_man_, 0, g);
+
       // Get coefficient and nodal src
       const double Dg = xs.Dg[g];
       const double sigr_g = xs.sigR[g];
 
       std::vector<double> qg(num_nodes, 0.0);
-      for (size_t j = 0; j < num_nodes; j++)
+      for (size_t j = 0; j < num_nodes; ++j)
         qg[j] = q_vector[sdm_.MapDOFLocal(cell, j, uk_man_, 0, g)];
 
       // Assemble continuous terms
-      for (size_t i = 0; i < num_nodes; i++)
+      for (size_t i = 0; i < num_nodes; ++i)
       {
-        const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
         double entry_rhs_i = 0.0;
-        for (size_t j = 0; j < num_nodes; j++)
+        for (size_t j = 0; j < num_nodes; ++j)
         {
-          const int64_t jmap = sdm_.MapDOF(cell, j, uk_man_, 0, g);
-
           const double entry_aij =
-            Dg * intV_gradshapeI_gradshapeJ[i][j] + sigr_g * intV_shapeI_shapeJ[i][j];
+            Dg * intV_gradshapeI_gradshapeJ(i, j) + sigr_g * intV_shapeI_shapeJ(i, j);
 
-          entry_rhs_i += intV_shapeI_shapeJ[i][j] * qg[j];
+          entry_rhs_i += intV_shapeI_shapeJ(i, j) * qg[j];
 
-          MatSetValue(A_, imap, jmap, entry_aij, ADD_VALUES);
+          cell_A(i, j) += entry_aij;
         } // for j
 
-        VecSetValue(rhs_, imap, entry_rhs_i, ADD_VALUES);
+        cell_rhs(i) += entry_rhs_i;
       } // for i
 
       // Assemble face terms
       for (size_t f = 0; f < num_faces; ++f)
       {
-        const auto& face = cell.faces_[f];
-        const auto& n_f = face.normal_;
+        const auto& face = cell.faces[f];
+        const auto& n_f = face.normal;
         const size_t num_face_nodes = cell_mapping.NumFaceNodes(f);
 
         const auto& intS_shapeI_shapeJ = unit_cell_matrices.intS_shapeI_shapeJ[f];
@@ -656,15 +675,15 @@ DiffusionMIPSolver::AssembleAand_b(const std::vector<double>& q_vector)
 
         const double hm = HPerpendicular(cell, f);
 
-        if (face.has_neighbor_)
+        if (face.has_neighbor)
         {
-          const auto& adj_cell = grid_.cells[face.neighbor_id_];
+          const auto& adj_cell = grid_.cells[face.neighbor_id];
           const auto& adj_cell_mapping = sdm_.GetCellMapping(adj_cell);
           const auto ac_nodes = adj_cell_mapping.GetNodeLocations();
           const size_t acf = MeshContinuum::MapCellFace(cell, adj_cell, f);
           const double hp = HPerpendicular(adj_cell, acf);
 
-          const auto& adj_xs = mat_id_2_xs_map_.at(adj_cell.material_id_);
+          const auto& adj_xs = mat_id_2_xs_map_.at(adj_cell.material_id);
           const double adj_Dg = adj_xs.Dg[g];
 
           // Compute kappa
@@ -676,24 +695,29 @@ DiffusionMIPSolver::AssembleAand_b(const std::vector<double>& q_vector)
           if (cell.Type() == CellType::POLYHEDRON)
             kappa = fmax(options.penalty_factor * 2.0 * (adj_Dg / hp + Dg / hm) * 0.5, 0.25);
 
+          DenseMatrix<double> adj_A(num_nodes, num_face_nodes, 0.);
+          DenseMatrix<double> adj_AT(num_face_nodes, num_nodes, 0.);
+          Vector<int64_t> adj_idxs(num_face_nodes);
+          for (size_t fj = 0; fj < num_face_nodes; ++fj)
+          {
+            const auto jp =
+              MapFaceNodeDisc(cell, adj_cell, cc_nodes, ac_nodes, f, acf, fj); // j-plus
+            adj_idxs(fj) = sdm_.MapDOF(adj_cell, jp, uk_man_, 0, g);
+          }
+
           // Assembly penalty terms
           for (size_t fi = 0; fi < num_face_nodes; ++fi)
           {
             const int i = cell_mapping.MapFaceNode(f, fi);
-            const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
             for (size_t fj = 0; fj < num_face_nodes; ++fj)
             {
               const int jm = cell_mapping.MapFaceNode(f, fj); // j-minus
-              const int jp =
-                MapFaceNodeDisc(cell, adj_cell, cc_nodes, ac_nodes, f, acf, fj); // j-plus
-              const int64_t jmmap = sdm_.MapDOF(cell, jm, uk_man_, 0, g);
-              const int64_t jpmap = sdm_.MapDOF(adj_cell, jp, uk_man_, 0, g);
 
-              const double aij = kappa * intS_shapeI_shapeJ[i][jm];
+              const double aij = kappa * intS_shapeI_shapeJ(i, jm);
 
-              MatSetValue(A_, imap, jmmap, aij, ADD_VALUES);
-              MatSetValue(A_, imap, jpmap, -aij, ADD_VALUES);
+              cell_A(i, jm) += aij;
+              adj_A(i, fj) -= aij;
             } // for fj
           }   // for fi
 
@@ -702,51 +726,55 @@ DiffusionMIPSolver::AssembleAand_b(const std::vector<double>& q_vector)
           // Dk = 0.5* n dot nabla bk
 
           // 0.5*D* n dot (b_j^+ - b_j^-)*nabla b_i^-
-          for (int i = 0; i < num_nodes; i++)
+          for (int i = 0; i < num_nodes; ++i)
           {
-            const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
-
-            for (int fj = 0; fj < num_face_nodes; fj++)
+            for (int fj = 0; fj < num_face_nodes; ++fj)
             {
               const int jm = cell_mapping.MapFaceNode(f, fj); // j-minus
-              const int jp =
-                MapFaceNodeDisc(cell, adj_cell, cc_nodes, ac_nodes, f, acf, fj); // j-plus
-              const int64_t jmmap = sdm_.MapDOF(cell, jm, uk_man_, 0, g);
-              const int64_t jpmap = sdm_.MapDOF(adj_cell, jp, uk_man_, 0, g);
 
-              const double aij = -0.5 * Dg * n_f.Dot(intS_shapeI_gradshapeJ[jm][i]);
+              const double aij = -0.5 * Dg * n_f.Dot(intS_shapeI_gradshapeJ(jm, i));
 
-              MatSetValue(A_, imap, jmmap, aij, ADD_VALUES);
-              MatSetValue(A_, imap, jpmap, -aij, ADD_VALUES);
+              cell_A(i, jm) += aij;
+              adj_A(i, fj) -= aij;
             } // for fj
           }   // for i
 
           // 0.5*D* n dot (b_i^+ - b_i^-)*nabla b_j^-
-          for (int fi = 0; fi < num_face_nodes; fi++)
+          for (int fi = 0; fi < num_face_nodes; ++fi)
           {
             const int im = cell_mapping.MapFaceNode(f, fi); // i-minus
-            const int ip =
-              MapFaceNodeDisc(cell, adj_cell, cc_nodes, ac_nodes, f, acf, fi); // i-plus
-            const int64_t immap = sdm_.MapDOF(cell, im, uk_man_, 0, g);
-            const int64_t ipmap = sdm_.MapDOF(adj_cell, ip, uk_man_, 0, g);
 
-            for (int j = 0; j < num_nodes; j++)
+            for (int j = 0; j < num_nodes; ++j)
             {
-              const int64_t jmap = sdm_.MapDOF(cell, j, uk_man_, 0, g);
+              const double aij = -0.5 * Dg * n_f.Dot(intS_shapeI_gradshapeJ(im, j));
 
-              const double aij = -0.5 * Dg * n_f.Dot(intS_shapeI_gradshapeJ[im][j]);
-
-              MatSetValue(A_, immap, jmap, aij, ADD_VALUES);
-              MatSetValue(A_, ipmap, jmap, -aij, ADD_VALUES);
+              cell_A(im, j) += aij;
+              adj_AT(fi, j) -= aij;
             } // for j
           }   // for fi
+
+          MatSetValues(A_,
+                       num_nodes,
+                       cell_idxs.data(),
+                       num_face_nodes,
+                       adj_idxs.data(),
+                       adj_A.data(),
+                       ADD_VALUES);
+
+          MatSetValues(A_,
+                       num_face_nodes,
+                       adj_idxs.data(),
+                       num_nodes,
+                       cell_idxs.data(),
+                       adj_AT.data(),
+                       ADD_VALUES);
 
         } // internal face
         else
         {
           BoundaryCondition bc;
-          if (bcs_.count(face.neighbor_id_) > 0)
-            bc = bcs_.at(face.neighbor_id_);
+          if (bcs_.count(face.neighbor_id) > 0)
+            bc = bcs_.at(face.neighbor_id);
 
           if (bc.type == BCType::DIRICHLET)
           {
@@ -765,18 +793,16 @@ DiffusionMIPSolver::AssembleAand_b(const std::vector<double>& q_vector)
             for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               for (size_t fj = 0; fj < num_face_nodes; ++fj)
               {
                 const int jm = cell_mapping.MapFaceNode(f, fj);
-                const int64_t jmmap = sdm_.MapDOF(cell, jm, uk_man_, 0, g);
 
-                const double aij = kappa * intS_shapeI_shapeJ[i][jm];
+                const double aij = kappa * intS_shapeI_shapeJ(i, jm);
                 const double aij_bc_value = aij * bc_value;
 
-                MatSetValue(A_, imap, jmmap, aij, ADD_VALUES);
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_A(i, jm) += aij;
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for fi
 
@@ -785,20 +811,16 @@ DiffusionMIPSolver::AssembleAand_b(const std::vector<double>& q_vector)
             // Dk = n dot nabla bk
 
             // D* n dot (b_j^+ - b_j^-)*nabla b_i^-
-            for (size_t i = 0; i < num_nodes; i++)
+            for (size_t i = 0; i < num_nodes; ++i)
             {
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
-
-              for (size_t j = 0; j < num_nodes; j++)
+              for (size_t j = 0; j < num_nodes; ++j)
               {
-                const int64_t jmap = sdm_.MapDOF(cell, j, uk_man_, 0, g);
-
                 const double aij =
-                  -Dg * n_f.Dot(intS_shapeI_gradshapeJ[j][i] + intS_shapeI_gradshapeJ[i][j]);
+                  -Dg * n_f.Dot(intS_shapeI_gradshapeJ(j, i) + intS_shapeI_gradshapeJ(i, j));
                 const double aij_bc_value = aij * bc_value;
 
-                MatSetValue(A_, imap, jmap, aij, ADD_VALUES);
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_A(i, j) += aij;
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for i
           }     // Dirichlet BC
@@ -811,36 +833,38 @@ DiffusionMIPSolver::AssembleAand_b(const std::vector<double>& q_vector)
             if (std::fabs(bval) < 1.0e-12)
               continue; // a and f assumed zero
 
-            for (size_t fi = 0; fi < num_face_nodes; fi++)
+            for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t ir = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               if (std::fabs(aval) >= 1.0e-12)
               {
-                for (size_t fj = 0; fj < num_face_nodes; fj++)
+                for (size_t fj = 0; fj < num_face_nodes; ++fj)
                 {
                   const int j = cell_mapping.MapFaceNode(f, fj);
-                  const int64_t jr = sdm_.MapDOF(cell, j, uk_man_, 0, g);
 
-                  const double aij = (aval / bval) * intS_shapeI_shapeJ[i][j];
+                  const double aij = (aval / bval) * intS_shapeI_shapeJ(i, j);
 
-                  MatSetValue(A_, ir, jr, aij, ADD_VALUES);
+                  cell_A(i, j) += aij;
                 } // for fj
               }   // if a nonzero
 
               if (std::fabs(fval) >= 1.0e-12)
               {
-                const double rhs_val = (fval / bval) * intS_shapeI[i];
+                const double rhs_val = (fval / bval) * intS_shapeI(i);
 
-                VecSetValue(rhs_, ir, rhs_val, ADD_VALUES);
+                cell_rhs(i) += rhs_val;
               } // if f nonzero
             }   // for fi
           }     // Robin BC
         }       // boundary face
       }         // for face
-    }           // for g
-  }             // for cell
+
+      MatSetValues(
+        A_, num_nodes, cell_idxs.data(), num_nodes, cell_idxs.data(), cell_A.data(), ADD_VALUES);
+      VecSetValues(rhs_, num_nodes, cell_idxs.data(), cell_rhs.data(), ADD_VALUES);
+    } // for g
+  }   // for cell
 
   MatAssemblyBegin(A_, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(A_, MAT_FINAL_ASSEMBLY);
@@ -889,46 +913,51 @@ DiffusionMIPSolver::Assemble_b(const std::vector<double>& q_vector)
   if (options.verbose)
     log.Log() << program_timer.GetTimeString() << " Starting assembly";
 
-  const size_t num_groups = uk_man_.unknowns_.front().num_components_;
+  const size_t num_groups = uk_man_.unknowns.front().num_components;
 
   VecSet(rhs_, 0.0);
   for (const auto& cell : grid_.local_cells)
   {
-    const size_t num_faces = cell.faces_.size();
+    const size_t num_faces = cell.faces.size();
     const auto& cell_mapping = sdm_.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
     const auto cc_nodes = cell_mapping.GetNodeLocations();
-    const auto& unit_cell_matrices = unit_cell_matrices_[cell.local_id_];
+    const auto& unit_cell_matrices = unit_cell_matrices_[cell.local_id];
 
     const auto& intV_shapeI_shapeJ = unit_cell_matrices.intV_shapeI_shapeJ;
 
-    const auto& xs = mat_id_2_xs_map_.at(cell.material_id_);
+    const auto& xs = mat_id_2_xs_map_.at(cell.material_id);
 
+    Vector<double> cell_rhs(num_nodes);
+    Vector<int64_t> cell_idxs(num_nodes);
     for (size_t g = 0; g < num_groups; ++g)
     {
+      cell_rhs.Set(0.);
+      for (size_t i = 0; i < num_nodes; ++i)
+        cell_idxs(i) = sdm_.MapDOF(cell, i, uk_man_, 0, g);
+
       // Get coefficient and nodal src
       const double Dg = xs.Dg[g];
 
       std::vector<double> qg(num_nodes, 0.0);
-      for (size_t j = 0; j < num_nodes; j++)
+      for (size_t j = 0; j < num_nodes; ++j)
         qg[j] = q_vector[sdm_.MapDOFLocal(cell, j, uk_man_, 0, g)];
 
       // Assemble continuous terms
-      for (size_t i = 0; i < num_nodes; i++)
+      for (size_t i = 0; i < num_nodes; ++i)
       {
-        const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
         double entry_rhs_i = 0.0;
-        for (size_t j = 0; j < num_nodes; j++)
-          entry_rhs_i += intV_shapeI_shapeJ[i][j] * qg[j];
+        for (size_t j = 0; j < num_nodes; ++j)
+          entry_rhs_i += intV_shapeI_shapeJ(i, j) * qg[j];
 
-        VecSetValue(rhs_, imap, entry_rhs_i, ADD_VALUES);
+        cell_rhs(i) += entry_rhs_i;
       } // for i
 
       // Assemble face terms
       for (size_t f = 0; f < num_faces; ++f)
       {
-        const auto& face = cell.faces_[f];
-        const auto& n_f = face.normal_;
+        const auto& face = cell.faces[f];
+        const auto& n_f = face.normal;
         const size_t num_face_nodes = cell_mapping.NumFaceNodes(f);
 
         const auto& intS_shapeI_shapeJ = unit_cell_matrices.intS_shapeI_shapeJ[f];
@@ -937,11 +966,11 @@ DiffusionMIPSolver::Assemble_b(const std::vector<double>& q_vector)
 
         const double hm = HPerpendicular(cell, f);
 
-        if (not face.has_neighbor_ and not suppress_bcs_)
+        if (not face.has_neighbor and not suppress_bcs_)
         {
           BoundaryCondition bc;
-          if (bcs_.count(face.neighbor_id_) > 0)
-            bc = bcs_.at(face.neighbor_id_);
+          if (bcs_.count(face.neighbor_id) > 0)
+            bc = bcs_.at(face.neighbor_id);
 
           if (bc.type == BCType::DIRICHLET)
           {
@@ -960,16 +989,15 @@ DiffusionMIPSolver::Assemble_b(const std::vector<double>& q_vector)
             for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               for (size_t fj = 0; fj < num_face_nodes; ++fj)
               {
                 const int jm = cell_mapping.MapFaceNode(f, fj);
 
-                const double aij = kappa * intS_shapeI_shapeJ[i][jm];
+                const double aij = kappa * intS_shapeI_shapeJ(i, jm);
                 const double aij_bc_value = aij * bc_value;
 
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for fi
 
@@ -978,17 +1006,15 @@ DiffusionMIPSolver::Assemble_b(const std::vector<double>& q_vector)
             // Dk = n dot nabla bk
 
             // D* n dot (b_j^+ - b_j^-)*nabla b_i^-
-            for (size_t i = 0; i < num_nodes; i++)
+            for (size_t i = 0; i < num_nodes; ++i)
             {
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
-
-              for (size_t j = 0; j < num_nodes; j++)
+              for (size_t j = 0; j < num_nodes; ++j)
               {
                 const double aij =
-                  -Dg * n_f.Dot(intS_shapeI_gradshapeJ[j][i] + intS_shapeI_gradshapeJ[i][j]);
+                  -Dg * n_f.Dot(intS_shapeI_gradshapeJ(j, i) + intS_shapeI_gradshapeJ(i, j));
                 const double aij_bc_value = aij * bc_value;
 
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for i
           }     // Dirichlet BC
@@ -1000,23 +1026,24 @@ DiffusionMIPSolver::Assemble_b(const std::vector<double>& q_vector)
             if (std::fabs(bval) < 1.0e-12)
               continue; // a and f assumed zero
 
-            for (size_t fi = 0; fi < num_face_nodes; fi++)
+            for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t ir = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               if (std::fabs(fval) >= 1.0e-12)
               {
-                const double rhs_val = (fval / bval) * intS_shapeI[i];
+                const double rhs_val = (fval / bval) * intS_shapeI(i);
 
-                VecSetValue(rhs_, ir, rhs_val, ADD_VALUES);
+                cell_rhs(i) += rhs_val;
               } // if f nonzero
             }   // for fi
           }     // Robin BC
         }       // boundary face
       }         // for face
-    }           // for g
-  }             // for cell
+
+      VecSetValues(rhs_, num_nodes, cell_idxs.data(), cell_rhs.data(), ADD_VALUES);
+    } // for g
+  }   // for cell
 
   VecAssemblyBegin(rhs_);
   VecAssemblyEnd(rhs_);
@@ -1036,7 +1063,7 @@ DiffusionMIPSolver::Assemble_b(Vec petsc_q_vector)
   if (options.verbose)
     log.Log() << program_timer.GetTimeString() << " Starting assembly";
 
-  const size_t num_groups = uk_man_.unknowns_.front().num_components_;
+  const size_t num_groups = uk_man_.unknowns.front().num_components;
 
   const double* q_vector;
   VecGetArrayRead(petsc_q_vector, &q_vector);
@@ -1044,41 +1071,46 @@ DiffusionMIPSolver::Assemble_b(Vec petsc_q_vector)
   VecSet(rhs_, 0.0);
   for (const auto& cell : grid_.local_cells)
   {
-    const size_t num_faces = cell.faces_.size();
+    const size_t num_faces = cell.faces.size();
     const auto& cell_mapping = sdm_.GetCellMapping(cell);
     const size_t num_nodes = cell_mapping.NumNodes();
     const auto cc_nodes = cell_mapping.GetNodeLocations();
-    const auto& unit_cell_matrices = unit_cell_matrices_[cell.local_id_];
+    const auto& unit_cell_matrices = unit_cell_matrices_[cell.local_id];
 
     const auto& intV_shapeI_shapeJ = unit_cell_matrices.intV_shapeI_shapeJ;
 
-    const auto& xs = mat_id_2_xs_map_.at(cell.material_id_);
+    const auto& xs = mat_id_2_xs_map_.at(cell.material_id);
 
+    Vector<double> cell_rhs(num_nodes);
+    Vector<int64_t> cell_idxs(num_nodes);
     for (size_t g = 0; g < num_groups; ++g)
     {
+      cell_rhs.Set(0.);
+      for (size_t i = 0; i < num_nodes; ++i)
+        cell_idxs(i) = sdm_.MapDOF(cell, i, uk_man_, 0, g);
+
       // Get coefficient and nodal src
       const double Dg = xs.Dg[g];
 
       std::vector<double> qg(num_nodes, 0.0);
-      for (size_t j = 0; j < num_nodes; j++)
+      for (size_t j = 0; j < num_nodes; ++j)
         qg[j] = q_vector[sdm_.MapDOFLocal(cell, j, uk_man_, 0, g)];
 
       // Assemble continuous terms
-      for (size_t i = 0; i < num_nodes; i++)
+      for (size_t i = 0; i < num_nodes; ++i)
       {
-        const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
         double entry_rhs_i = 0.0;
-        for (size_t j = 0; j < num_nodes; j++)
-          entry_rhs_i += intV_shapeI_shapeJ[i][j] * qg[j];
+        for (size_t j = 0; j < num_nodes; ++j)
+          entry_rhs_i += intV_shapeI_shapeJ(i, j) * qg[j];
 
-        VecSetValue(rhs_, imap, entry_rhs_i, ADD_VALUES);
+        cell_rhs(i) += entry_rhs_i;
       } // for i
 
       // Assemble face terms
       for (size_t f = 0; f < num_faces; ++f)
       {
-        const auto& face = cell.faces_[f];
-        const auto& n_f = face.normal_;
+        const auto& face = cell.faces[f];
+        const auto& n_f = face.normal;
         const size_t num_face_nodes = cell_mapping.NumFaceNodes(f);
 
         const auto& intS_shapeI_shapeJ = unit_cell_matrices.intS_shapeI_shapeJ[f];
@@ -1087,11 +1119,11 @@ DiffusionMIPSolver::Assemble_b(Vec petsc_q_vector)
 
         const double hm = HPerpendicular(cell, f);
 
-        if (not face.has_neighbor_ and not suppress_bcs_)
+        if (not face.has_neighbor and not suppress_bcs_)
         {
           BoundaryCondition bc;
-          if (bcs_.count(face.neighbor_id_) > 0)
-            bc = bcs_.at(face.neighbor_id_);
+          if (bcs_.count(face.neighbor_id) > 0)
+            bc = bcs_.at(face.neighbor_id);
 
           if (bc.type == BCType::DIRICHLET)
           {
@@ -1110,16 +1142,15 @@ DiffusionMIPSolver::Assemble_b(Vec petsc_q_vector)
             for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               for (size_t fj = 0; fj < num_face_nodes; ++fj)
               {
                 const int jm = cell_mapping.MapFaceNode(f, fj);
 
-                const double aij = kappa * intS_shapeI_shapeJ[i][jm];
+                const double aij = kappa * intS_shapeI_shapeJ(i, jm);
                 const double aij_bc_value = aij * bc_value;
 
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for fi
 
@@ -1128,17 +1159,15 @@ DiffusionMIPSolver::Assemble_b(Vec petsc_q_vector)
             // Dk = n dot nabla bk
 
             // D* n dot (b_j^+ - b_j^-)*nabla b_i^-
-            for (size_t i = 0; i < num_nodes; i++)
+            for (size_t i = 0; i < num_nodes; ++i)
             {
-              const int64_t imap = sdm_.MapDOF(cell, i, uk_man_, 0, g);
-
-              for (size_t j = 0; j < num_nodes; j++)
+              for (size_t j = 0; j < num_nodes; ++j)
               {
                 const double aij =
-                  -Dg * n_f.Dot(intS_shapeI_gradshapeJ[j][i] + intS_shapeI_gradshapeJ[i][j]);
+                  -Dg * n_f.Dot(intS_shapeI_gradshapeJ(j, i) + intS_shapeI_gradshapeJ(i, j));
                 const double aij_bc_value = aij * bc_value;
 
-                VecSetValue(rhs_, imap, aij_bc_value, ADD_VALUES);
+                cell_rhs(i) += aij_bc_value;
               } // for fj
             }   // for i
           }     // Dirichlet BC
@@ -1150,23 +1179,23 @@ DiffusionMIPSolver::Assemble_b(Vec petsc_q_vector)
             if (std::fabs(bval) < 1.0e-12)
               continue; // a and f assumed zero
 
-            for (size_t fi = 0; fi < num_face_nodes; fi++)
+            for (size_t fi = 0; fi < num_face_nodes; ++fi)
             {
               const int i = cell_mapping.MapFaceNode(f, fi);
-              const int64_t ir = sdm_.MapDOF(cell, i, uk_man_, 0, g);
 
               if (std::fabs(fval) >= 1.0e-12)
               {
-                const double rhs_val = (fval / bval) * intS_shapeI[i];
+                const double rhs_val = (fval / bval) * intS_shapeI(i);
 
-                VecSetValue(rhs_, ir, rhs_val, ADD_VALUES);
+                cell_rhs(i) += rhs_val;
               } // if f nonzero
             }   // for fi
           }     // Robin BC
         }       // boundary face
       }         // for face
-    }           // for g
-  }             // for cell
+      VecSetValues(rhs_, num_nodes, cell_idxs.data(), cell_rhs.data(), ADD_VALUES);
+    } // for g
+  }   // for cell
 
   VecRestoreArrayRead(petsc_q_vector, &q_vector);
 
@@ -1183,8 +1212,8 @@ DiffusionMIPSolver::HPerpendicular(const Cell& cell, unsigned int f)
   const auto& cell_mapping = sdm_.GetCellMapping(cell);
   double hp;
 
-  const size_t num_faces = cell.faces_.size();
-  const size_t num_vertices = cell.vertex_ids_.size();
+  const size_t num_faces = cell.faces.size();
+  const size_t num_vertices = cell.vertex_ids.size();
 
   const double volume = cell_mapping.CellVolume();
   const double face_area = cell_mapping.FaceArea(f);

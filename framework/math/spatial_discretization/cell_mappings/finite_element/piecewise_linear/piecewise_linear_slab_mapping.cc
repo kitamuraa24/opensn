@@ -14,16 +14,16 @@ PieceWiseLinearSlabMapping::PieceWiseLinearSlabMapping(const Cell& slab_cell,
   : PieceWiseLinearBaseMapping(ref_grid, slab_cell, 2, MakeFaceNodeMapping(slab_cell)),
     volume_quadrature_(volume_quadrature)
 {
-  v0i_ = slab_cell.vertex_ids_[0];
-  v1i_ = slab_cell.vertex_ids_[1];
+  v0i_ = slab_cell.vertex_ids[0];
+  v1i_ = slab_cell.vertex_ids[1];
   v0_ = ref_grid_.vertices[v0i_];
   const auto& v1 = ref_grid_.vertices[v1i_];
 
   Vector3 v01 = v1 - v0_;
   h_ = v01.Norm();
 
-  normals_[0] = slab_cell.faces_[0].normal_;
-  normals_[1] = slab_cell.faces_[1].normal_;
+  normals_[0] = slab_cell.faces[0].normal;
+  normals_[1] = slab_cell.faces[1].normal;
 }
 
 double
@@ -83,9 +83,9 @@ PieceWiseLinearSlabMapping::ShapeValue(const int i, const Vector3& xyz) const
 }
 
 void
-PieceWiseLinearSlabMapping::ShapeValues(const Vector3& xyz, std::vector<double>& shape_values) const
+PieceWiseLinearSlabMapping::ShapeValues(const Vector3& xyz, Vector<double>& shape_values) const
 {
-  shape_values.resize(num_nodes_, 0.0);
+  shape_values.Resize(num_nodes_, 0.0);
   const auto& p0 = ref_grid_.vertices[v0i_];
   const auto& p1 = ref_grid_.vertices[v1i_];
   Vector3 xyz_ref = xyz - p0;
@@ -96,12 +96,12 @@ PieceWiseLinearSlabMapping::ShapeValues(const Vector3& xyz, std::vector<double>&
 
   if ((xi >= -1.0e-6) and (xi <= 1.0 + 1.0e-6))
   {
-    for (int i = 0; i < num_nodes_; i++)
+    for (int i = 0; i < num_nodes_; ++i)
     {
       if (i == 0)
-        shape_values[i] = 1.0 - xi;
+        shape_values(i) = 1.0 - xi;
       else
-        shape_values[i] = xi;
+        shape_values(i) = xi;
     } // for dof
 
     return;
@@ -147,7 +147,7 @@ PieceWiseLinearSlabMapping::MakeVolumetricFiniteElementData() const
 
   V_shape_value.reserve(num_nodes_);
   V_shape_grad.reserve(num_nodes_);
-  for (size_t i = 0; i < num_nodes_; i++)
+  for (size_t i = 0; i < num_nodes_; ++i)
   {
     std::vector<double> node_shape_value;
     std::vector<Vector3> node_shape_grad;
@@ -219,7 +219,7 @@ PieceWiseLinearSlabMapping::MakeSurfaceFiniteElementData(size_t face_index) cons
 
   F_shape_value.reserve(num_nodes_);
   F_shape_grad.reserve(num_nodes_);
-  for (size_t i = 0; i < num_nodes_; i++)
+  for (size_t i = 0; i < num_nodes_; ++i)
   {
     std::vector<double> node_shape_value;
     std::vector<Vector3> node_shape_grad;

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MIT
 
 #include "lua/framework/lua.h"
-#include "framework/math/quadratures/angular/sldfe_sq_quadrature.h"
 #include "lua/framework/console/console.h"
+#include "lua/framework/math/quadratures/sldfesq/sldfe.h"
+#include "framework/math/quadratures/angular/sldfe_sq_quadrature.h"
 #include "framework/logging/log.h"
 #include "framework/runtime.h"
-#include "lua/framework/math/quadratures/sldfesq/sldfe.h"
 
 using namespace opensn;
 
@@ -28,7 +28,7 @@ LocallyRefineSLDFESQAngularQuadrature(lua_State* L)
   try
   {
     auto ref_quadrature = opensn::angular_quadrature_stack.at(handle);
-    if (ref_quadrature->type_ == AngularQuadratureType::SLDFESQ)
+    if (ref_quadrature->type == AngularQuadratureType::SLDFESQ)
     {
       auto sldfesq = std::dynamic_pointer_cast<SimplifiedLDFESQ::Quadrature>(ref_quadrature);
 

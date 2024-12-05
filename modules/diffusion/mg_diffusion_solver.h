@@ -6,9 +6,10 @@
 #include "modules/diffusion/boundary.h"
 #include "framework/materials/multi_group_xs/multi_group_xs.h"
 #include "framework/materials/isotropic_multigroup_source.h"
-#include "framework/physics/solver_base/solver.h"
+#include "framework/physics/solver.h"
 #include "framework/math/petsc_utils/petsc_utils.h"
 #include "framework/utils/timer.h"
+#include "framework/math/vector.h"
 #include <map>
 #include <set>
 
@@ -112,11 +113,11 @@ private:
   std::map<uint64_t, MGBoundary> boundaries_;
 
 protected:
-  std::map<int, std::shared_ptr<MultiGroupXS>> matid_to_xs_map;
+  std::map<int, std::shared_ptr<MultiGroupXS>> matid_to_xs_map_;
 
-  std::map<int, std::shared_ptr<IsotropicMultiGroupSource>> matid_to_src_map;
+  std::map<int, std::shared_ptr<IsotropicMultiGroupSource>> matid_to_src_map_;
 
-  std::map<int, TwoGridCollapsedInfo> map_mat_id_2_tginfo;
+  std::map<int, TwoGridCollapsedInfo> map_mat_id_2_tginfo_;
   //  std::map<int, Multigroup_D_and_sigR> map_mat_id_2_tgXS;
 
 public:

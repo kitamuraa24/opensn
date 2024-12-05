@@ -3,10 +3,8 @@
 
 #pragma once
 
-#include "framework/math/linear_solver/linear_solver.h"
-
 #include "modules/linear_boltzmann_solvers/lbs_solver/iterative_methods/wgs_context.h"
-
+#include "framework/math/linear_solver/petsc_linear_solver.h"
 #include <memory>
 #include <vector>
 #include <functional>
@@ -15,14 +13,15 @@ namespace opensn
 {
 
 /// Linear Solver specialization for Within GroupSet (WGS) solves.
-class WGSLinearSolver : public LinearSolver
+class WGSLinearSolver : public PETScLinearSolver
 {
 public:
   /**
    * Constructor.
    * \param gs_context_ptr Context Pointer to abstract context.
    */
-  explicit WGSLinearSolver(std::shared_ptr<WGSContext> gs_context_ptr);
+  explicit WGSLinearSolver(const std::shared_ptr<WGSContext>& gs_context_ptr);
+
   ~WGSLinearSolver() override;
 
 protected:

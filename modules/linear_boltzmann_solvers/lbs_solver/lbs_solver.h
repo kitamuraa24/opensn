@@ -10,8 +10,9 @@
 #include "modules/linear_boltzmann_solvers/lbs_solver/volumetric_source/volumetric_source.h"
 #include "modules/linear_boltzmann_solvers/lbs_solver/lbs_structs.h"
 #include "framework/math/spatial_discretization/spatial_discretization.h"
+#include "framework/mesh/mesh_continuum/mesh_continuum.h"
 #include "framework/math/linear_solver/linear_solver.h"
-#include "framework/physics/solver_base/solver.h"
+#include "framework/physics/solver.h"
 #include <petscksp.h>
 #include <chrono>
 
@@ -29,7 +30,7 @@ struct WGSContext;
 class LBSSolver : public opensn::Solver
 {
 public:
-  explicit LBSSolver(const std::string& text_name);
+  explicit LBSSolver(const std::string& name);
 
   /// Input parameters based construction.
   explicit LBSSolver(const InputParameters& params);
@@ -260,34 +261,8 @@ public:
   /// Read phi_old from restart file.
   void ReadRestartData();
 
-  /// Writes a full angular flux vector to file.
-  void WriteAngularFluxes(const std::vector<std::vector<double>>& src,
-                          const std::string& file_base) const;
-
-  /// Reads a full angular flux vector from a file into the specified vector.
-  void ReadAngularFluxes(const std::string& file_base,
-                         std::vector<std::vector<double>>& dest) const;
-
-  /// Writes a groupset angular flux vector to file.
-  void WriteGroupsetAngularFluxes(const LBSGroupset& groupset,
-                                  const std::vector<double>& src,
-                                  const std::string& file_base) const;
-
-  /// Reads the groupset angular fluxes from a file into the specified vector.
-  void ReadGroupsetAngularFluxes(const std::string& file_base,
-                                 const LBSGroupset& groupset,
-                                 std::vector<double>& dest) const;
-
   /// Makes a source-moments vector from scattering and fission based on the latest phi-solution.
   std::vector<double> MakeSourceMomentsFromPhi();
-
-  /// Writes a given flux moments vector to file.
-  void WriteFluxMoments(const std::vector<double>& src, const std::string& file_base) const;
-
-  /// Reads a flux moments vector from a file into the specified vector.
-  void ReadFluxMoments(const std::string& file_base,
-                       std::vector<double>& dest,
-                       bool single_file = false) const;
 
   /// Copy relevant section of phi_old to the field functions.
   void UpdateFieldFunctions();
@@ -299,64 +274,16 @@ public:
 
   /**
    * Compute the total fission production in the problem.
-   * \author Zachary Hardy.
    */
   double ComputeFissionProduction(const std::vector<double>& phi);
 
   /**
    * Computes the total fission rate in the problem.
-   * \author Zachary Hardy.
    */
   double ComputeFissionRate(const std::vector<double>& phi);
 
   /// Compute the steady state delayed neutron precursor concentrations.
   void ComputePrecursors();
-
-  /// Sets a value to the zeroth (scalar) moment of the vector.
-  virtual void SetPhiVectorScalarValues(std::vector<double>& phi_vector, double value);
-
-  /// Scales a flux moment vector. For sweep methods the delayed angular fluxes will also be scaled.
-  virtual void ScalePhiVector(PhiSTLOption which_phi, double value);
-
-  /// Assembles a vector for a given groupset from a source vector.
-  virtual void
-  SetGSPETScVecFromPrimarySTLvector(const LBSGroupset& groupset, Vec x, PhiSTLOption which_phi);
-
-  /// Assembles a vector for a given groupset from a source vector.
-  virtual void
-  SetPrimarySTLvectorFromGSPETScVec(const LBSGroupset& groupset, Vec x, PhiSTLOption which_phi);
-
-  /// Assembles a vector for a given groupset from a source vector.
-  virtual void GSScopedCopyPrimarySTLvectors(const LBSGroupset& groupset,
-                                             const std::vector<double>& x,
-                                             std::vector<double>& y);
-
-  /// Assembles a vector for a given groupset from a source vector.
-  virtual void GSScopedCopyPrimarySTLvectors(const LBSGroupset& groupset,
-                                             PhiSTLOption from_which_phi,
-                                             PhiSTLOption to_which_phi);
-
-  /// Assembles a vector for a given group span from a source vector.
-  virtual void SetGroupScopedPETScVecFromPrimarySTLvector(int first_group_id,
-                                                          int last_group_id,
-                                                          Vec x,
-                                                          const std::vector<double>& y);
-
-  /// Assembles a vector for a given groupset from a source vector.
-  virtual void SetPrimarySTLvectorFromGroupScopedPETScVec(int first_group_id,
-                                                          int last_group_id,
-                                                          Vec x,
-                                                          std::vector<double>& y);
-
-  /// Assembles a PETSc vector from multiple groupsets.
-  virtual void SetMultiGSPETScVecFromPrimarySTLvector(const std::vector<int>& groupset_ids,
-                                                      Vec x,
-                                                      PhiSTLOption which_phi);
-
-  /// Disassembles a multiple Groupset PETSc vector STL vectors.
-  virtual void SetPrimarySTLvectorFromMultiGSPETScVecFrom(const std::vector<int>& groupset_ids,
-                                                          Vec x,
-                                                          PhiSTLOption which_phi);
 
   /**
    * A method for post-processing an adjoint solution.
@@ -455,9 +382,6 @@ protected:
 
   /// Cleans up memory consuming items.
   static void CleanUpTGDSA(LBSGroupset& groupset);
-
-private:
-  void PrepareForRestarts();
 
 public:
   static std::map<std::string, uint64_t> supported_boundary_names;

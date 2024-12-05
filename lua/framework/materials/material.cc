@@ -3,13 +3,13 @@
 
 #include "lua/framework/materials/material.h"
 #include "lua/framework/lua.h"
+#include "lua/framework/console/console.h"
 #include "framework/materials/material.h"
 #include "framework/materials/multi_group_xs/multi_group_xs.h"
 #include "framework/materials/scalar_value.h"
 #include "framework/materials/isotropic_multigroup_source.h"
 #include "framework/runtime.h"
 #include "framework/logging/log.h"
-#include "lua/framework/console/console.h"
 #include <iostream>
 
 using namespace opensn;
@@ -130,7 +130,7 @@ MatSetProperty(lua_State* L)
     if (op_type == static_cast<int>(OperationType::SINGLE_VALUE))
     {
       const auto value = LuaArg<double>(L, 4);
-      property->value_ = value;
+      property->Set(value);
       opensn::log.Log0Verbose1() << "Scalar value for material at index " << material_handle
                                  << " set to " << value;
     }

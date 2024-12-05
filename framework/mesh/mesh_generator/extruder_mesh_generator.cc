@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "framework/mesh/mesh_generator/extruder_mesh_generator.h"
-
 #include "framework/object_factory.h"
-
 #include "framework/logging/log.h"
 
 namespace opensn
@@ -158,8 +156,8 @@ ExtruderMeshGenerator::GenerateUnpartitionedMesh(std::shared_ptr<UnpartitionedMe
   std::vector<double> z_levels = {current_z};
   for (const auto& layer : layers_)
   {
-    const double dz = layer.height_ / layer.num_sub_layers_;
-    for (uint32_t i = 0; i < layer.num_sub_layers_; ++i)
+    const double dz = layer.height / layer.num_sub_layers;
+    for (uint32_t i = 0; i < layer.num_sub_layers; ++i)
       z_levels.push_back(current_z += dz);
   }
 
@@ -173,7 +171,7 @@ ExtruderMeshGenerator::GenerateUnpartitionedMesh(std::shared_ptr<UnpartitionedMe
   size_t k = 0;
   for (const auto& layer : layers_)
   {
-    for (uint32_t n = 0; n < layer.num_sub_layers_; ++n)
+    for (uint32_t n = 0; n < layer.num_sub_layers; ++n)
     {
       size_t tc_counter = 0;
       for (const auto& template_cell : template_cells)
@@ -212,7 +210,7 @@ ExtruderMeshGenerator::GenerateUnpartitionedMesh(std::shared_ptr<UnpartitionedMe
         {
           UnpartitionedMesh::LightWeightFace new_face;
 
-          new_face.vertex_ids.resize(4, -1);
+          new_face.vertex_ids.resize(4);
           new_face.vertex_ids[0] = tc_face.vertex_ids[0] + k * num_template_vertices;
           new_face.vertex_ids[1] = tc_face.vertex_ids[1] + k * num_template_vertices;
           new_face.vertex_ids[2] = tc_face.vertex_ids[1] + (k + 1) * num_template_vertices;

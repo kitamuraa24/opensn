@@ -44,15 +44,15 @@ SimTest93_RayTracing(const InputParameters&)
   // Build harmonic map
   std::vector<std::pair<int, int>> m_to_ell_em_map;
   if (dimension == 1)
-    for (int ell = 0; ell <= scattering_order; ell++)
+    for (int ell = 0; ell <= scattering_order; ++ell)
       m_to_ell_em_map.emplace_back(ell, 0);
   else if (dimension == 2)
-    for (int ell = 0; ell <= scattering_order; ell++)
+    for (int ell = 0; ell <= scattering_order; ++ell)
       for (int m = -ell; m <= ell; m += 2)
         m_to_ell_em_map.emplace_back(ell, m);
   else if (dimension == 3)
-    for (int ell = 0; ell <= scattering_order; ell++)
-      for (int m = -ell; m <= ell; m++)
+    for (int ell = 0; ell <= scattering_order; ++ell)
+      for (int m = -ell; m <= ell; ++m)
         m_to_ell_em_map.emplace_back(ell, m);
 
   // Make SDM
@@ -100,7 +100,7 @@ SimTest93_RayTracing(const InputParameters&)
   if (source_cell_ptr == nullptr)
     throw std::logic_error(fname + ": Source cell not found.");
 
-  const uint64_t source_cell_id = source_cell_ptr->global_id_;
+  const uint64_t source_cell_id = source_cell_ptr->global_id;
 
   // Define lambdas
   RandomNumberGenerator rng;
@@ -132,8 +132,8 @@ SimTest93_RayTracing(const InputParameters&)
     std::vector<double> segment_lengths;
     PopulateRaySegmentLengths(grid, cell, positionA, positionB, omega, segment_lengths);
 
-    std::vector<double> shape_values_k;   // At s_k
-    std::vector<double> shape_values_kp1; // At s_{k+1}
+    Vector<double> shape_values_k;   // At s_k
+    Vector<double> shape_values_kp1; // At s_{k+1}
 
     cell_mapping.ShapeValues(positionA, shape_values_k);
 
@@ -151,8 +151,8 @@ SimTest93_RayTracing(const InputParameters&)
 
       for (size_t i = 0; i < num_nodes; ++i)
       {
-        const double C0 = b_ik[i] * ell_k;
-        const double C1 = b_ikp1[i] - b_ik[i];
+        const double C0 = b_ik(i) * ell_k;
+        const double C1 = b_ikp1(i) - b_ik(i);
 
         for (size_t m = 0; m < num_moments; ++m)
         {
@@ -185,12 +185,12 @@ SimTest93_RayTracing(const InputParameters&)
 
   auto GetCellApproximateSize = [&grid](const Cell& cell)
   {
-    const auto& v0 = grid.vertices[cell.vertex_ids_[0]];
+    const auto& v0 = grid.vertices[cell.vertex_ids[0]];
     double xmin = v0.x, xmax = v0.x;
     double ymin = v0.y, ymax = v0.y;
     double zmin = v0.z, zmax = v0.z;
 
-    for (uint64_t vid : cell.vertex_ids_)
+    for (uint64_t vid : cell.vertex_ids)
     {
       const auto& v = grid.vertices[vid];
 
@@ -208,7 +208,7 @@ SimTest93_RayTracing(const InputParameters&)
   // Create raytracer
   std::vector<double> cell_sizes(grid.local_cells.size(), 0.0);
   for (const auto& cell : grid.local_cells)
-    cell_sizes[cell.local_id_] = GetCellApproximateSize(cell);
+    cell_sizes[cell.local_id] = GetCellApproximateSize(cell);
 
   RayTracer ray_tracer(grid, cell_sizes);
 
@@ -247,10 +247,10 @@ SimTest93_RayTracing(const InputParameters&)
       if (not destination_info.particle_lost)
       {
         const auto& f = destination_info.destination_face_index;
-        const auto& current_cell_face = cell.faces_[f];
+        const auto& current_cell_face = cell.faces[f];
 
-        if (current_cell_face.has_neighbor_)
-          particle.cell_id = current_cell_face.neighbor_id_;
+        if (current_cell_face.has_neighbor)
+          particle.cell_id = current_cell_face.neighbor_id;
         else
           particle.alive = false; // Death at the boundary
       }
@@ -278,32 +278,32 @@ SimTest93_RayTracing(const InputParameters&)
     const auto& fe_vol_data = cell_mapping.MakeVolumetricFiniteElementData();
     const size_t num_nodes = cell_mapping.NumNodes();
 
-    MatDbl M(num_nodes, std::vector<double>(num_nodes, 0.0));
+    DenseMatrix<double> M(num_nodes, num_nodes, 0.0);
     for (auto qp : fe_vol_data.QuadraturePointIndices())
       for (size_t i = 0; i < num_nodes; ++i)
         for (size_t j = 0; j < num_nodes; ++j)
-          M[i][j] +=
+          M(i, j) +=
             fe_vol_data.ShapeValue(i, qp) * fe_vol_data.ShapeValue(j, qp) * fe_vol_data.JxW(qp);
 
     auto M_inv = Inverse(M);
 
     // Apply projection
-    std::vector<double> T(num_nodes, 0.0);
+    Vector<double> T(num_nodes, 0.0);
     for (size_t m = 0; m < num_moments; ++m)
       for (size_t g = 0; g < num_groups; ++g)
       {
         for (size_t i = 0; i < num_nodes; ++i)
         {
           const int64_t imap = sdm.MapDOFLocal(cell, i, phi_uk_man, m, g);
-          T[i] = phi_tally[imap] / num_particles;
+          T(i) = phi_tally[imap] / num_particles;
         }
 
-        auto phi_uc = MatMul(M_inv, T);
+        auto phi_uc = Mult(M_inv, T);
 
         for (size_t i = 0; i < num_nodes; ++i)
         {
           const int64_t imap = sdm.MapDOFLocal(cell, i, phi_uk_man, m, g);
-          phi_tally[imap] = phi_uc[i];
+          phi_tally[imap] = phi_uc(i);
         }
       } // for group g
 

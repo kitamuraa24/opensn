@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "modules/linear_boltzmann_solvers/discrete_ordinates_solver/sweep/scheduler/sweep_scheduler.h"
-#include "modules/linear_boltzmann_solvers/discrete_ordinates_solver/sweep/spds/spds_adams_adams_hawkins.h"
+#include "modules/linear_boltzmann_solvers/discrete_ordinates_solver/sweep/spds/aah.h"
 #include "modules/linear_boltzmann_solvers/discrete_ordinates_solver/sweep/boundary/reflecting_boundary.h"
 #include "framework/logging/log.h"
 #include "framework/runtime.h"
@@ -59,24 +59,24 @@ SweepScheduler::InitializeAlgoDOG()
 
   // Load all anglesets in preperation for sorting
   // Loop over angleset groups
-  for (size_t q = 0; q < angle_agg_.angle_set_groups.size(); q++)
+  for (size_t q = 0; q < angle_agg_.angle_set_groups.size(); ++q)
   {
     AngleSetGroup& angleset_group = angle_agg_.angle_set_groups[q];
 
     // Loop over anglesets in group
     size_t num_anglesets = angleset_group.AngleSets().size();
-    for (size_t as = 0; as < num_anglesets; as++)
+    for (size_t as = 0; as < num_anglesets; ++as)
     {
       auto angleset = angleset_group.AngleSets()[as];
-      const auto& spds = dynamic_cast<const SPDS_AdamsAdamsHawkins&>(angleset->GetSPDS());
+      const auto& spds = dynamic_cast<const AAH_SPDS&>(angleset->GetSPDS());
 
-      const std::vector<STDG>& leveled_graph = spds.GetGlobalSweepPlanes();
+      const std::vector<STDG>& leveled_graph = spds.GlobalSweepPlanes();
 
       // Find location depth
       int loc_depth = -1;
-      for (size_t level = 0; level < leveled_graph.size(); level++)
+      for (size_t level = 0; level < leveled_graph.size(); ++level)
       {
-        for (size_t index = 0; index < leveled_graph[level].item_id.size(); index++)
+        for (size_t index = 0; index < leveled_graph[level].item_id.size(); ++index)
         {
           if (leveled_graph[level].item_id[index] == opensn::mpi_comm.rank())
           {
@@ -89,7 +89,7 @@ SweepScheduler::InitializeAlgoDOG()
       // Set up rule values
       if (loc_depth >= 0)
       {
-        RULE_VALUES new_rule_vals(angleset);
+        RuleValues new_rule_vals(angleset);
         new_rule_vals.depth_of_graph = loc_depth;
         new_rule_vals.set_index = as + q * num_anglesets;
 
@@ -112,7 +112,7 @@ SweepScheduler::InitializeAlgoDOG()
   // Init sort functions
   struct
   {
-    bool operator()(const RULE_VALUES& a, const RULE_VALUES& b)
+    bool operator()(const RuleValues& a, const RuleValues& b)
     {
       return a.depth_of_graph > b.depth_of_graph;
     }
@@ -120,7 +120,7 @@ SweepScheduler::InitializeAlgoDOG()
 
   struct
   {
-    bool operator()(const RULE_VALUES& a, const RULE_VALUES& b)
+    bool operator()(const RuleValues& a, const RuleValues& b)
     {
       return (a.depth_of_graph == b.depth_of_graph) and (a.sign_of_omegax > b.sign_of_omegax);
     }
@@ -128,7 +128,7 @@ SweepScheduler::InitializeAlgoDOG()
 
   struct
   {
-    bool operator()(const RULE_VALUES& a, const RULE_VALUES& b)
+    bool operator()(const RuleValues& a, const RuleValues& b)
     {
       return (a.depth_of_graph == b.depth_of_graph) and (a.sign_of_omegax == b.sign_of_omegax) and
              (a.sign_of_omegay > b.sign_of_omegay);
@@ -137,7 +137,7 @@ SweepScheduler::InitializeAlgoDOG()
 
   struct
   {
-    bool operator()(const RULE_VALUES& a, const RULE_VALUES& b)
+    bool operator()(const RuleValues& a, const RuleValues& b)
     {
       return (a.depth_of_graph == b.depth_of_graph) and (a.sign_of_omegax == b.sign_of_omegax) and
              (a.sign_of_omegay == b.sign_of_omegay) and (a.sign_of_omegaz > b.sign_of_omegaz);
