@@ -39,6 +39,7 @@ if (OPENSN_WITH_CUDA)
 endif()
 option(OPENSN_WITH_DOCS "Enable documentation" OFF)
 option(OPENSN_WITH_LUA "Build with lua support" ON)
+option(OPENSN_WITH_FOAM "Build with OpenFOAM mesh support" ON)
 option(OPENSN_WITH_PYTHON "Build with python support" OFF)
 option(OPENSN_WITH_PYTHON_MODULE "Build with python module" OFF)
 
@@ -212,11 +213,77 @@ if(OPENSN_WITH_LUA)
     target_compile_definitions(libopensn PRIVATE OPENSN_WITH_LUA)
 endif()
 
-target_compile_options(libopensn PRIVATE ${OPENSN_CXX_FLAGS})
+# find OpenFOAM libraries
+if(OPENSN_WITH_FOAM)
+    message(STATUS "OpenFOAM support turned ON")
+    # Check for environment variable
+    if(DEFINED ENV{WM_PROJECT_DIR})
+        set(OPENFOAM_DIR $ENV{WM_PROJECT_DIR})
+        message(STATUS "OpenFOAM installation FOUND at: ${OPENFOAM_DIR}")
+
+        # Compiler Flags for OpenFOAM
+        set(GCC_FLAGS 
+            -m64
+            -DOPENFOAM=2406
+            -DWM_DP
+            -DWM_LABEL_SIZE=32
+            -Wall
+            -Wnon-virtual-dtor
+            -DNoRepository
+            -ftemplate-depth-100
+            -O3
+            -fPIC
+        )
+        target_compile_options(libopensn PRIVATE ${GCC_FLAGS})
+        target_compile_definitions(libopensn PRIVATE
+            -DOPENFOAM=2406
+            -DWM_DP
+            -DWM_LABEL_SIZE=$ENV{WM_LABEL_SIZE}
+        )
+
+        # Include OpenFOAM directories
+        target_include_directories(libopensn
+            PRIVATE
+            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/finiteVolume/lnInclude>
+            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/meshTools/lnInclude>
+            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/OpenFOAM/lnInclude>
+            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/OSspecific/POSIX/lnInclude>
+        )
+
+        # # Add OpenFOAM lib directory
+        # if(DEFINED ENV{FOAM_LIBBIN})
+        #     # link_directories($ENV{FOAM_LIBBIN})
+        # else()
+        #     message(FATAL_ERROR "FOAM_LIBBIN is not set.")
+        # endif()
+        
+        # # Link OpenFOAM libraries
+        # set(OPENFOAM_LIBRARIES
+        #     OpenFOAM
+        #     fvOptions
+        #     meshTools
+        #     finiteVolume
+        # )
+        # target_link_libraries(libopensn PRIVATE ${OPENFOAM_LIBRARIES})
+        target_link_libraries(libopensn PRIVATE
+            $ENV{FOAM_LIBBIN}/libOpenFOAM.so
+            $ENV{FOAM_LIBBIN}/libfvOptions.so
+            $ENV{FOAM_LIBBIN}/libmeshTools.so
+            $ENV{FOAM_LIBBIN}/libfiniteVolume.so
+        )
+        
+        message(STATUS "Linking OpenFOAM libraries: ${OPENFOAM_LIBRARIES}")
+
+    else()
+        message(FATAL_ERROR "OpenFOAM environment is not sourced. Please source OpenFOAM .bashrc.")
+    endif()
+endif()
 
 if(NOT MSVC)
     set_target_properties(libopensn PROPERTIES OUTPUT_NAME opensn)
 endif()
+
+target_compile_options(libopensn PRIVATE ${OPENSN_CXX_FLAGS})
 
 set_target_properties(
     libopensn
@@ -269,74 +336,26 @@ endif()
 configure_package_config_file(
     ${PROJECT_SOURCE_DIR}/cmake/OpenSnConfig.cmake.in
     OpenSnConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/opensn
-    NO_SET_AND_CHECK_MACRO
-)
-
-write_basic_package_version_file(
-    OpenSnConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY AnyNewerVersion
+    INSTALL_DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/cmake/opensn
 )
 
 install(
     TARGETS libopensn
-    EXPORT openSnTargets
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    EXPORT OpenSnConfig
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
 install(
-    DIRECTORY ${CMAKE_SOURCE_DIR}/framework
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opensn
-    FILES_MATCHING PATTERN "*.h"
-)
-
-install(
-    DIRECTORY ${CMAKE_SOURCE_DIR}/modules
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opensn
-    FILES_MATCHING PATTERN "*.h"
-)
-
-install(
-    DIRECTORY ${CMAKE_SOURCE_DIR}/external/mpicpp-lite
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opensn
-    FILES_MATCHING PATTERN "*.h"
-)
-
-install(
-    EXPORT openSnTargets
-    FILE OpenSnTargets.cmake
-    NAMESPACE opensn::
+    EXPORT OpenSnConfig
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/opensn
 )
 
 install(
-    FILES
-        "${CMAKE_CURRENT_BINARY_DIR}/OpenSnConfig.cmake"
-        "${CMAKE_CURRENT_BINARY_DIR}/OpenSnConfigVersion.cmake"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/opensn
+    FILES ${CMAKE_BINARY_DIR}/config.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opensn
 )
-
-if(OPENSN_WITH_LUA)
-    install(
-        TARGETS opensn libopensnlua
-        EXPORT openSnTargets
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib
-        RUNTIME DESTINATION bin
-    )
-
-    install(
-        DIRECTORY ${CMAKE_SOURCE_DIR}/lua
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opensn
-        FILES_MATCHING PATTERN "*.h"
-    )
-endif()
-
 if(OPENSN_WITH_PYTHON)
     install(
         TARGETS opensn libopensnpy
