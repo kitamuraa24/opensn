@@ -56,7 +56,11 @@ FromFileMeshGenerator::GenerateUnpartitionedMesh(std::shared_ptr<UnpartitionedMe
     umesh = MeshIO::FromPVTU(options);
   else if (extension == ".case")
     umesh = MeshIO::FromEnsightGold(options);
-  else
+#ifdef OPENFOAM_WITH_OPENSN // compile if OpenFOAM support is on
+  // looks for OpenFOAM case directory
+  if (std::filesystem::exists(filepath))
+    umesh = MeshIO::FromOpenFOAM(options);
+#endif // OPENSN_WITH_OPENFOAM  else
     throw std::invalid_argument("Unsupported file type \"" + extension +
                                 "\". Supported types limited to "
                                 ".obj, .msh, .e, .vtu, .pvtu, .case.");
@@ -97,5 +101,6 @@ FromFileMeshGenerator::Create(const ParameterBlock& params)
   auto ptr = factory.Create<FromFileMeshGenerator>("mesh::FromFileMeshGenerator", params);
   return ptr;
 }
-
+<<<<<< HEAD
+>>>>>>> 4ba1e344 (foam_io.cc is fully functioning. Now begins the cleanup for prod.)
 } // namespace opensn
