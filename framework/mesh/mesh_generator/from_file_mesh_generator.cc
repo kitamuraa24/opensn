@@ -80,6 +80,11 @@ FromFileMeshGenerator::GenerateUnpartitionedMesh(std::shared_ptr<UnpartitionedMe
     return MeshIO::FromPVTU(options);
   else if (extension == ".case")
     return MeshIO::FromEnsightGold(options);
+#ifdef OPENSN_WITH_OPENFOAM // compile if OpenFOAM is supported
+  // looks for OpenFOAM case directory
+  else if (std::filesystem::exists(filepath))
+    return MeshIO::FromOpenFOAM(options);
+#endif // OPENSN_WITH_OPENFOAM
   else
     OpenSnInvalidArgument("Unsupported file type \"" + extension +
                           "\". Supported types limited to"
