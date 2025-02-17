@@ -19,8 +19,9 @@ public:
   FromEnsightGold(const UnpartitionedMesh::Options& options);
   static std::shared_ptr<UnpartitionedMesh> FromOBJ(const UnpartitionedMesh::Options& options);
   static std::shared_ptr<UnpartitionedMesh> FromGmsh(const UnpartitionedMesh::Options& options);
+#ifdef OPENSN_WITH_OPENFOAM
   static std::shared_ptr<UnpartitionedMesh> FromOpenFOAM(const UnpartitionedMesh::Options& options);
-
+#endif // OPENSN_WITH_OPENFOAM
   /**
    * Write grid cells into an OBJ file
    *
