@@ -207,10 +207,10 @@ CopyFoamMesh(std::shared_ptr<UnpartitionedMesh> mesh,
             << " valid cells." << std::endl;
 
   // Store Data into `UnpartitionedMesh`
-  mesh->RawCells() = cells;
-  mesh->Vertices().reserve(total_point_count);
+  mesh->GetRawCells() = cells;
+  mesh->GetVertices().reserve(total_point_count);
   for (const auto& vertex_ptr : vertices)
-    mesh->Vertices().push_back(*vertex_ptr);
+    mesh->GetVertices().push_back(*vertex_ptr);
 
   mesh->ComputeBoundingBox();
 
