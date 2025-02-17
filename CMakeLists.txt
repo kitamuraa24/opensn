@@ -210,55 +210,17 @@ endif()
 
 # find OpenFOAM libraries
 if(OPENSN_WITH_OPENFOAM)
-    message(STATUS "OpenFOAM support turned ON")
+    find_package(OpenFOAM REQUIRED)
+    if(OPENFOAM_FOUND)
+        message(STATUS "OpenFOAM version: ${OPENFOAM_VERSION}")
 
-    # Check for environment variable
-    if(DEFINED ENV{WM_PROJECT_DIR})
-        set(OPENFOAM_DIR $ENV{WM_PROJECT_DIR})
-        message(STATUS "OpenFOAM installation FOUND at: ${OPENFOAM_DIR}")
+        target_compile_definitions(libopensn PUBLIC ${OPENFOAM_COMPILE_DEFINITIONS})
+        target_compile_options(libopensn PRIVATE ${OPENFOAM_COMPILE_FLAGS})
 
-        # Compiler Flags for OpenFOAM
-        set(GCC_FLAGS 
-            -m64
-            -DOPENFOAM=2406
-            -DWM_DP
-            -DWM_LABEL_SIZE=32
-            -Wall
-            -Wno-pedantic
-            -DNoRepository
-            -ftemplate-depth-100
-            -O3
-            -fPIC
-        )
-        target_compile_options(libopensn PRIVATE ${GCC_FLAGS})
-        target_compile_definitions(libopensn PUBLIC
-            -DOPENSN_WITH_OPENFOAM
-            -DOPENFOAM=2406
-            -DWM_DP
-            -DWM_LABEL_SIZE=$ENV{WM_LABEL_SIZE}
-        )
-
-        # Include OpenFOAM directories
-        target_include_directories(libopensn
-            PRIVATE
-            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/fvOptions/lnInclude>
-            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/finiteVolume/lnInclude>
-            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/meshTools/lnInclude>
-            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/OpenFOAM/lnInclude>
-            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/OSspecific/POSIX/lnInclude>
-        )
-
-        target_link_libraries(libopensn PRIVATE
-            $ENV{FOAM_LIBBIN}/libOpenFOAM.so
-            $ENV{FOAM_LIBBIN}/libfvOptions.so
-            $ENV{FOAM_LIBBIN}/libmeshTools.so
-            $ENV{FOAM_LIBBIN}/libfiniteVolume.so
-        )
-        
-        message(STATUS "Linking OpenFOAM libraries.")
-
+        target_include_directories(libopensn PRIVATE ${OPENFOAM_INCLUDE_DIRS})
+        target_link_libraries(libopensn PRIVATE ${OPENFOAM_LIBRARIES})
     else()
-        message(FATAL_ERROR "OpenFOAM environment is not sourced. Please source OpenFOAM .bashrc.")
+        message(FATAL_ERROR "OpenFOAM not found! Make sure it is sourced properly.")
     endif()
 endif()
 
