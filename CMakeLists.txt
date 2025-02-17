@@ -39,7 +39,7 @@ if (OPENSN_WITH_CUDA)
 endif()
 option(OPENSN_WITH_DOCS "Enable documentation" OFF)
 option(OPENSN_WITH_LUA "Build with lua support" ON)
-option(OPENSN_WITH_FOAM "Build with OpenFOAM mesh support" ON)
+option(OPENSN_WITH_OPENFOAM "Build with OpenFOAM mesh support" ON)
 
 # dependencies
 find_package(MPI REQUIRED)
@@ -202,8 +202,9 @@ if(OPENSN_WITH_LUA)
 endif()
 
 # find OpenFOAM libraries
-if(OPENSN_WITH_FOAM)
+if(OPENSN_WITH_OPENFOAM)
     message(STATUS "OpenFOAM support turned ON")
+
     # Check for environment variable
     if(DEFINED ENV{WM_PROJECT_DIR})
         set(OPENFOAM_DIR $ENV{WM_PROJECT_DIR})
@@ -216,14 +217,15 @@ if(OPENSN_WITH_FOAM)
             -DWM_DP
             -DWM_LABEL_SIZE=32
             -Wall
-            -Wnon-virtual-dtor
+            -Wno-pedantic
             -DNoRepository
             -ftemplate-depth-100
             -O3
             -fPIC
         )
         target_compile_options(libopensn PRIVATE ${GCC_FLAGS})
-        target_compile_definitions(libopensn PRIVATE
+        target_compile_definitions(libopensn PUBLIC
+            -DOPENSN_WITH_OPENFOAM
             -DOPENFOAM=2406
             -DWM_DP
             -DWM_LABEL_SIZE=$ENV{WM_LABEL_SIZE}
@@ -232,27 +234,13 @@ if(OPENSN_WITH_FOAM)
         # Include OpenFOAM directories
         target_include_directories(libopensn
             PRIVATE
+            $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/fvOptions/lnInclude>
             $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/finiteVolume/lnInclude>
             $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/meshTools/lnInclude>
             $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/OpenFOAM/lnInclude>
             $<BUILD_INTERFACE:$ENV{WM_PROJECT_DIR}/src/OSspecific/POSIX/lnInclude>
         )
 
-        # # Add OpenFOAM lib directory
-        # if(DEFINED ENV{FOAM_LIBBIN})
-        #     # link_directories($ENV{FOAM_LIBBIN})
-        # else()
-        #     message(FATAL_ERROR "FOAM_LIBBIN is not set.")
-        # endif()
-        
-        # # Link OpenFOAM libraries
-        # set(OPENFOAM_LIBRARIES
-        #     OpenFOAM
-        #     fvOptions
-        #     meshTools
-        #     finiteVolume
-        # )
-        # target_link_libraries(libopensn PRIVATE ${OPENFOAM_LIBRARIES})
         target_link_libraries(libopensn PRIVATE
             $ENV{FOAM_LIBBIN}/libOpenFOAM.so
             $ENV{FOAM_LIBBIN}/libfvOptions.so
@@ -260,7 +248,7 @@ if(OPENSN_WITH_FOAM)
             $ENV{FOAM_LIBBIN}/libfiniteVolume.so
         )
         
-        message(STATUS "Linking OpenFOAM libraries: ${OPENFOAM_LIBRARIES}")
+        message(STATUS "Linking OpenFOAM libraries.")
 
     else()
         message(FATAL_ERROR "OpenFOAM environment is not sourced. Please source OpenFOAM .bashrc.")
