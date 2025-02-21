@@ -17,9 +17,12 @@
 #include "UPstream.H"
 #include "face.H"
 #include "cell.H"
+#undef Log
 
 namespace Foam
 {
+// Create an override to prevent OpneFOAM from finalizing MPI.
+// When destructor is called for fvMesh, this function is called.
 void
 UPstream::shutdown(int)
 {
@@ -77,8 +80,6 @@ CreateCellFromOpenFOAMCell(const Foam::fvMesh& foam_mesh, Foam::label cell)
   // Grab vertex idx of current cell.
   auto cell_points = foam_mesh.cellShapes()[cell];
   auto num_cpoints = cell_points.nPoints();
-
-  std::cout << "No of faces: " << num_cfaces << " No of points: " << num_cpoints << std::endl;
 
   polyh_cell->vertex_ids.reserve(num_cpoints);
 
@@ -192,19 +193,14 @@ CopyFoamMesh(std::shared_ptr<UnpartitionedMesh> mesh,
     *vertex *= scale; // Apply scaling
     vertices[p] = vertex;
   }
-  std::cout << "Processed " << total_point_count << " OpenFOAM points." << std::endl;
 
   // Process Cells with Vertex ID Validation
   for (Foam::label c = 0; c < total_cell_count; ++c)
   {
-    std::cout << "Entered process cells" << std::endl;
     std::shared_ptr<UnpartitionedMesh::LightWeightCell> raw_cell =
       CreateCellFromOpenFOAMCell(foam_mesh, c);
-    std::cout << "Successfully created cell from OF" << std::endl;
     cells.push_back(raw_cell);
   }
-  std::cout << "Processed " << total_cell_count << " OpenFOAM cells, stored " << cells.size()
-            << " valid cells." << std::endl;
 
   // Store Data into `UnpartitionedMesh`
   mesh->GetRawCells() = cells;
@@ -214,7 +210,39 @@ CopyFoamMesh(std::shared_ptr<UnpartitionedMesh> mesh,
 
   mesh->ComputeBoundingBox();
 
-  std::cout << fname + ": Mesh conversion completed successfully." << std::endl;
+  log.Log() << fname + ": Mesh conversion completed successfully.";
+}
+
+// Read in 'materials' from OpenFOAM
+// This is typically done by cellZones in polyMesh
+std::vector<int>
+BuildMaterialIDsFromFoamCellZones(const Foam::fvMesh& foam_mesh)
+{
+  const size_t total_cell_count = foam_mesh.nCells();
+  std::vector<int> material_ids(total_cell_count, -1);
+
+  const Foam::cellZoneMesh& cellZones = foam_mesh.cellZones();
+
+  for (Foam::label zoneID = 0; zoneID < cellZones.size(); ++zoneID)
+  {
+    const Foam::cellZone& cz = cellZones[zoneID];
+
+    for (Foam::label cell : cz)
+    {
+        material_ids[cell] = zoneID;
+    }
+  }
+  return material_ids;
+}
+
+void
+SetMaterialsFromMaterialsList(std::shared_ptr<UnpartitionedMesh> mesh,
+                         const std::vector<int>& material_ids)
+{
+  auto& raw_cells = mesh->GetRawCells();
+  const size_t total_cell_count = raw_cells.size();
+  for (size_t c = 0; c < total_cell_count; ++c)
+    raw_cells[c]->material_id = material_ids[c];
 }
 
 } // namespace
@@ -227,7 +255,6 @@ MeshIO::FromOpenFOAM(const UnpartitionedMesh::Options& options)
     options.file_name); // set case_dir to be passed arg from options
 
   setenv("FOAM_SIGFPE", "false", 1); // Disable floating-point exceptions for debugging
-
   // Check if valid case directory
   if (!std::filesystem::exists(case_dir))
   {
@@ -241,24 +268,30 @@ MeshIO::FromOpenFOAM(const UnpartitionedMesh::Options& options)
   char** argv = const_cast<char**>(temp_args);
   Foam::argList args(argc, argv, false);
   Foam::Time run_time(Foam::Time::controlDictName, args);
-  log.Log0Verbose0() << fname << ": OpenFOAM runtime initialized: " << run_time.timeName(); // Debug
+  log.Log() << fname << ": OpenFOAM runtime initialized: " << run_time.timeName(); // Debug
 
   Foam::fvMesh foam_mesh(Foam::IOobject(
     Foam::fvMesh::defaultRegion, run_time.timeName(), run_time, Foam::IOobject::MUST_READ));
 
-  log.Log0Verbose0() << fname << ": OpenFOAM fvMESH loaded successfully."; // Debug
+  log.Log() << fname << ": OpenFOAM fvMESH loaded successfully."; // Debug
 
   // Create and populate UnpartitionedMesh
   auto mesh = std::make_shared<UnpartitionedMesh>();
   CopyFoamMesh(mesh, foam_mesh, options.scale);
-  std::cout << fname << ": Checking if OpenFOAM is in parallel mode: "
-            << (Foam::Pstream::parRun() ? "YES" : "NO") << std::endl;
+
+  // Set material ids
+  const auto material_ids = BuildMaterialIDsFromFoamCellZones(foam_mesh);
+  SetMaterialsFromMaterialsList(mesh, material_ids);
 
   mesh->SetDimension(3);
   mesh->SetType(UNSTRUCTURED);
   mesh->ComputeCentroids();
   mesh->CheckQuality();
   mesh->BuildMeshConnectivity();
+
+  log.Log() << "Done processing " << options.file_name << ".\n"
+            << "Number of nodes read: " << mesh->GetVertices().size() << "\n"
+            << "Number of cells read: " << mesh->GetRawCells().size();
 
   return mesh;
 }
