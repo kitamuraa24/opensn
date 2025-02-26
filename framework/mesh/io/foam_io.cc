@@ -219,7 +219,7 @@ std::vector<int>
 BuildMaterialIDsFromFoamCellZones(const Foam::fvMesh& foam_mesh)
 {
   const size_t total_cell_count = foam_mesh.nCells();
-  std::vector<int> material_ids(total_cell_count, -1);
+  std::vector<int> material_ids(total_cell_count, 0);
 
   const Foam::cellZoneMesh& cellZones = foam_mesh.cellZones();
 
