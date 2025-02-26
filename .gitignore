@@ -86,3 +86,6 @@ doc/**/*.vtu
 
 tutorials/**/*.pvtu
 tutorials/**/*.vtu
+
+# h5 files
+*.h5
