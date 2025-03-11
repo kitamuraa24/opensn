@@ -219,7 +219,7 @@ std::vector<int>
 BuildMaterialIDsFromFoamCellZones(const Foam::fvMesh& foam_mesh)
 {
   const size_t total_cell_count = foam_mesh.nCells();
-  std::vector<int> material_ids(total_cell_count, 0);
+  std::vector<int> block_ids(total_cell_count, 0);
 
   const Foam::cellZoneMesh& cellZones = foam_mesh.cellZones();
 
@@ -229,20 +229,20 @@ BuildMaterialIDsFromFoamCellZones(const Foam::fvMesh& foam_mesh)
 
     for (Foam::label cell : cz)
     {
-        material_ids[cell] = zoneID;
+        block_ids[cell] = zoneID;
     }
   }
-  return material_ids;
+  return block_ids;
 }
 
 void
 SetMaterialsFromMaterialsList(std::shared_ptr<UnpartitionedMesh> mesh,
-                         const std::vector<int>& material_ids)
+                         const std::vector<int>& block_ids)
 {
   auto& raw_cells = mesh->GetRawCells();
   const size_t total_cell_count = raw_cells.size();
   for (size_t c = 0; c < total_cell_count; ++c)
-    raw_cells[c]->material_id = material_ids[c];
+    raw_cells[c]->block_id = block_ids[c];
 }
 
 } // namespace
@@ -280,8 +280,8 @@ MeshIO::FromOpenFOAM(const UnpartitionedMesh::Options& options)
   CopyFoamMesh(mesh, foam_mesh, options.scale);
 
   // Set material ids
-  const auto material_ids = BuildMaterialIDsFromFoamCellZones(foam_mesh);
-  SetMaterialsFromMaterialsList(mesh, material_ids);
+  const auto block_ids = BuildMaterialIDsFromFoamCellZones(foam_mesh);
+  SetMaterialsFromMaterialsList(mesh, block_ids);
 
   mesh->SetDimension(3);
   mesh->SetType(UNSTRUCTURED);
