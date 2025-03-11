@@ -89,6 +89,5 @@ FromFileMeshGenerator::Create(const ParameterBlock& params)
   auto ptr = factory.Create<FromFileMeshGenerator>("mesh::FromFileMeshGenerator", params);
   return ptr;
 }
-<<<<<< HEAD
->>>>>>> 4ba1e344 (foam_io.cc is fully functioning. Now begins the cleanup for prod.)
+
 } // namespace opensn
