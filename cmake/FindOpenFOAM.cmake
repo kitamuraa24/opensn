@@ -28,7 +28,7 @@ set(OPENFOAM_COMPILE_FLAGS
     -DWM_DP
     -DWM_LABEL_SIZE=32
     -Wall
-    -Wno-pedantic
+    # -Wno-pedantic
     -DNoRepository
     -ftemplate-depth-100
     -O3

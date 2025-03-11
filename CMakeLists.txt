@@ -44,7 +44,7 @@ if (OPENSN_WITH_CUDA)
 endif()
 option(OPENSN_WITH_DOCS "Enable documentation" OFF)
 option(OPENSN_WITH_LUA "Build with lua support" ON)
-option(OPENSN_WITH_OPENFOAM "Build with OpenFOAM mesh support" ON)
+option(OPENSN_WITH_OPENFOAM "Build with OpenFOAM mesh support" OFF)
 option(OPENSN_WITH_PYTHON "Build with python support" OFF)
 option(OPENSN_WITH_PYTHON_MODULE "Build with python module" OFF)
 
@@ -298,19 +298,48 @@ endif()
 configure_package_config_file(
     ${PROJECT_SOURCE_DIR}/cmake/OpenSnConfig.cmake.in
     OpenSnConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/cmake/opensn
+    INSTALL_DESTINATION ${CMAKE_INSTALL_PREFIX}/cmake/opensn
+    NO_SET_AND_CHECK_MACRO
+)
+
+write_basic_package_version_file(
+    OpenSnConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY AnyNewerVersion
 )
 
 install(
     TARGETS libopensn
-    EXPORT OpenSnConfig
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    EXPORT openSnTargets
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
 install(
-    EXPORT OpenSnConfig
+    DIRECTORY ${CMAKE_SOURCE_DIR}/framework
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opensn
+    FILES_MATCHING PATTERN "*.h"
+)
+
+install(
+    DIRECTORY ${CMAKE_SOURCE_DIR}/modules
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opensn
+    FILES_MATCHING PATTERN "*.h"
+)
+
+install(
+    DIRECTORY ${CMAKE_SOURCE_DIR}/external/mpicpp-lite
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opensn
+    FILES_MATCHING PATTERN "*.h"
+)
+
+install(
+    EXPORT openSnTargets
+    FILE OpenSnTargets.cmake
+    NAMESPACE opensn::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/opensn
 )
 
