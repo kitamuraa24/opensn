@@ -56,7 +56,7 @@ FromFileMeshGenerator::GenerateUnpartitionedMesh(std::shared_ptr<UnpartitionedMe
     umesh = MeshIO::FromPVTU(options);
   else if (extension == ".case")
     umesh = MeshIO::FromEnsightGold(options);
-#ifdef OPENFOAM_WITH_OPENSN // compile if OpenFOAM support is on
+#ifdef OPENSN_WITH_OPENFOAM // compile if OpenFOAM support is on
   // looks for OpenFOAM case directory
   if (std::filesystem::exists(filepath))
     umesh = MeshIO::FromOpenFOAM(options);
