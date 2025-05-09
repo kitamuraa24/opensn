@@ -42,28 +42,36 @@ FromFileMeshGenerator::GenerateUnpartitionedMesh(std::shared_ptr<UnpartitionedMe
 
   log.Log() << "FromFileMeshGenerator: Generating UnpartitionedMesh";
   const std::string extension = filepath.extension();
-
   std::shared_ptr<UnpartitionedMesh> umesh;
-  if (extension == ".obj")
+  if (extension == ".obj") {
     umesh = MeshIO::FromOBJ(options);
-  else if (extension == ".msh")
+  }
+  else if (extension == ".msh") {
     umesh = MeshIO::FromGmsh(options);
-  else if (extension == ".e")
+  }
+  else if (extension == ".e") {
     umesh = MeshIO::FromExodusII(options);
-  else if (extension == ".vtu")
+  }
+  else if (extension == ".vtu") {
     umesh = MeshIO::FromVTU(options);
-  else if (extension == ".pvtu")
+  }
+  else if (extension == ".pvtu") {
     umesh = MeshIO::FromPVTU(options);
-  else if (extension == ".case")
+  }
+  else if (extension == ".case") {
     umesh = MeshIO::FromEnsightGold(options);
-#ifdef OPENSN_WITH_OPENFOAM // compile if OpenFOAM support is on
-  // looks for OpenFOAM case directory
-  if (std::filesystem::exists(filepath))
+  }
+  #ifdef OPENSN_WITH_OPENFOAM
+  else if (std::filesystem::exists(filepath)) {
     umesh = MeshIO::FromOpenFOAM(options);
-#endif // OPENSN_WITH_OPENFOAM  else
-    throw std::invalid_argument("Unsupported file type \"" + extension +
-                                "\". Supported types limited to "
-                                ".obj, .msh, .e, .vtu, .pvtu, .case.");
+  }
+  #endif
+  else {
+    throw std::invalid_argument(
+      "Unsupported file type \"" + extension +
+      "\".  Supported types: .obj, .msh, .e, .vtu, .pvtu, .case"
+    );
+  }
 
   umesh->SetCoordinateSystem(coord_sys_);
   return umesh;
