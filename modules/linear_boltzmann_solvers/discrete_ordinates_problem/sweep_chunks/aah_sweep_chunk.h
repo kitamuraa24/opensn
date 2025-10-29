@@ -71,6 +71,7 @@ private:
 
   void CPUSweep_Generic(AngleSet& angle_set);
   void CPUSweep_N4(AngleSet& angle_set);
+  void CPUSweep_N6(AngleSet& angle_set);
 };
 
 } // namespace opensn

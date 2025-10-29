@@ -50,30 +50,29 @@ AAHSweepChunk::AAHSweepChunk(const std::shared_ptr<MeshContinuum>& grid,
     cpu_sweep_impl_ = &AAHSweepChunk::CPUSweep_Generic;
 
     if (min_num_cell_dofs == 4 and max_num_cell_dofs == 4)
-    {
       cpu_sweep_impl_ = &AAHSweepChunk::CPUSweep_N4;
+    else if (min_num_cell_dofs == 6 and max_num_cell_dofs == 6)
+      cpu_sweep_impl_ = &AAHSweepChunk::CPUSweep_N6;
+    auto block_size = [&](size_t gs_size) -> size_t
+    {
+      if (gs_size <= simd_width)
+        return gs_size;
 
-      auto block_size = [&](size_t gs_size) -> size_t
-      {
-        if (gs_size <= simd_width)
-          return gs_size;
+      size_t target = 0;
+      if (gs_size >= 16 * simd_width)
+        target = 4 * simd_width;
+      else if (gs_size >= 4 * simd_width)
+        target = 2 * simd_width;
+      else
+        target = 1 * simd_width;
 
-        size_t target = 0;
-        if (gs_size >= 16 * simd_width)
-          target = 4 * simd_width;
-        else if (gs_size >= 4 * simd_width)
-          target = 2 * simd_width;
-        else
-          target = 1 * simd_width;
+      target = std::min(target, gs_size);
+      if (target >= simd_width)
+        target = (target / simd_width) * simd_width;
+      return target;
+    };
 
-        target = std::min(target, gs_size);
-        if (target >= simd_width)
-          target = (target / simd_width) * simd_width;
-        return target;
-      };
-
-      group_block_size_ = block_size(groupset_.groups.size());
-    }
+    group_block_size_ = block_size(groupset_.groups.size());  
   }
 }
 
