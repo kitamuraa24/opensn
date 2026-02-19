@@ -17,6 +17,7 @@ if "opensn_console" not in globals():
     from pyopensn.aquad import GLProductQuadrature1DSlab
     from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
     from pyopensn.logvol import RPPLogicalVolume
+    from pyopensn.post import VolumePostprocessor
 
 if __name__ == "__main__":
 
@@ -85,6 +86,25 @@ if __name__ == "__main__":
     )
 
     # Initialize and execute solver
-    ss_solver = SteadyStateSourceSolver(problem=phys, compute_balance=True)
+    ss_solver = SteadyStateSourceSolver(problem=phys)
     ss_solver.Initialize()
     ss_solver.Execute()
+
+    # PPS over whole domain
+    pps_whole_min = VolumePostprocessor(problem=phys, value_type="min")
+    pps_whole_min.Execute()
+
+    pps_whole_max = VolumePostprocessor(problem=phys, value_type="max")
+    pps_whole_max.Execute()
+
+    pps_whole_avg = VolumePostprocessor(problem=phys, value_type="avg")
+    pps_whole_avg.Execute()
+
+    pps_whole_int = VolumePostprocessor(problem=phys, value_type="integral")
+    pps_whole_int.Execute()
+
+    if rank ==0:
+        print(f"whole: min = {pps_whole_min.GetValue()[0][0]}")
+        print(f"whole: max = {pps_whole_max.GetValue()[0][0]}")
+        print(f"whole: avg = {pps_whole_avg.GetValue()[0][0]}")
+        print(f"whole: int = {pps_whole_int.GetValue()[0][0]}")
