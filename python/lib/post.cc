@@ -3,6 +3,7 @@
 
 #include "python/lib/py_wrappers.h"
 #include "modules/linear_boltzmann_solvers/lbs_problem/postprocessors/volume_postprocessor.h"
+#include "modules/linear_boltzmann_solvers/lbs_problem/postprocessors/reaction_rate_postprocessor.h"
 #include <pybind11/stl.h>
 
 namespace opensn
@@ -60,6 +61,68 @@ WrapPostprocessors(py::module& post)
   vp.def(
     "GetValue",
     [](VolumePostprocessor& self)
+    {
+      return self.GetValue();
+    },
+    R"(
+    TODO: finish this
+    )"
+  );
+
+  // Reaction rate post processor
+  auto rrp = py::class_<ReactionRatePostprocessor,
+                        VolumePostprocessor,
+                        std::shared_ptr<ReactionRatePostprocessor>>(
+  post,
+  "ReactionRatePostprocessor",
+  R"(
+  Reaction-rate post-processor.
+  Wrapper of :cpp:class:`opensn::ReactionRatePostprocessor`.
+  Computes \f$\int_V \Sigma_g \phi_g\, dV\f$ (or max/min/avg variants)
+  over the selected spatial region and energy groups.
+  )"
+  );
+  rrp.def(
+    py::init(
+      [](py::kwargs& params)
+      {
+        return ReactionRatePostprocessor::Create(kwargs_to_param_block(params));
+      }
+    ),
+    R"(
+    Construct a reaction-rate post processor object.
+
+    Parameters
+    ----------
+    problem : LBSProblem
+        A handle to an existing LBS problem.
+    reaction : str
+        Reaction XS name. Built-ins: 'total', 'absorption', 'fission', 'nu-fission'.
+        Otherwise must match a custom XS name present in MultiGroupXS.
+    value_type : str, optional
+        Type of value to compute: 'integral' (default), 'max', 'min', or 'avg'.
+    group : int, optional
+        Single group to compute (mutually exclusive with groupset).
+    groupset : int, optional
+        Single groupset to compute (mutually exclusive with group).
+    block_ids : list[int], optional
+        Block restriction for the postprocessor.
+    logical_volumes : list[LogicalVolume], optional
+        Logical volumes to restrict the computation to.
+    )"
+  );
+  rrp.def(
+    "Execute",
+    [](ReactionRatePostprocessor& self){
+      self.Execute();
+    },
+    R"(
+      TODO: finish this
+    )"
+  );
+  rrp.def(
+    "GetValue",
+    [](ReactionRatePostprocessor& self)
     {
       return self.GetValue();
     },

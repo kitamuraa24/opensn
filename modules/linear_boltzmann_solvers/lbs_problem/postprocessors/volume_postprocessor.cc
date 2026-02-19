@@ -227,7 +227,8 @@ VolumePostprocessor::ComputeIntegral(const std::vector<uint32_t>& cell_local_ids
         for (std::size_t j = 0; j < num_nodes; ++j)
           phi_h += fe_vol_data.ShapeValue(j, qp) * nodal_value[j];
 
-        local_integral[k] += phi_h * coord(fe_vol_data.QPointXYZ(qp)) * fe_vol_data.JxW(qp);
+        const double mult = CellGroupMultiplier(cell, groups_[k]);
+        local_integral[k] += (mult * phi_h) * coord(fe_vol_data.QPointXYZ(qp)) * fe_vol_data.JxW(qp);
       }
     }
   }
@@ -259,7 +260,8 @@ VolumePostprocessor::ComputeMax(const std::vector<uint32_t>& cell_local_ids)
       for (std::size_t i = 0; i < num_nodes; ++i)
       {
         const auto imap = sdm.MapDOFLocal(cell, i, uk_man, 0, groups_[k]);
-        local_max[k] = std::max(local_max[k], phi[imap]);
+        const double mult = CellGroupMultiplier(cell, groups_[k]);
+        local_max[k] = std::max(local_max[k], mult * phi[imap]);
       }
     }
   }
@@ -291,7 +293,8 @@ VolumePostprocessor::ComputeMin(const std::vector<uint32_t>& cell_local_ids)
       for (std::size_t i = 0; i < num_nodes; ++i)
       {
         const auto imap = sdm.MapDOFLocal(cell, i, uk_man, 0, groups_[k]);
-        local_min[k] = std::min(local_min[k], phi[imap]);
+        const double mult = CellGroupMultiplier(cell, groups_[k]);
+        local_min[k] = std::min(local_min[k], mult * phi[imap]);
       }
     }
   }
@@ -338,7 +341,8 @@ VolumePostprocessor::ComputeVolumeWeightedAverage(const std::vector<uint32_t>& c
           phi_h += fe_vol_data.ShapeValue(j, qp) * nodal_value[j];
 
         const auto weight = coord(fe_vol_data.QPointXYZ(qp)) * fe_vol_data.JxW(qp);
-        local_weighted_integral[k] += phi_h * weight;
+        const double mult = CellGroupMultiplier(cell, groups_[k]);
+        local_weighted_integral[k] += (mult * phi_h) * weight;
       }
     }
 

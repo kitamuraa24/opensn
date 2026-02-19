@@ -11,6 +11,9 @@
 namespace opensn
 {
 
+// Forward dec to avoid pulling mesh headers 
+struct Cell;
+
 class VolumePostprocessor
 {
 public:
@@ -24,6 +27,8 @@ public:
 
   /// Input parameters based construction.
   explicit VolumePostprocessor(const InputParameters& params);
+
+  virtual ~VolumePostprocessor() = default;
 
   void Execute();
 
@@ -52,6 +57,22 @@ private:
   /// Selected groupset (-1 means not selected)
   std::optional<unsigned int> selected_groupset_;
 
+protected:
+  /**
+  * Returns a cell- and group-dependent multiplier applied to the volumetric
+  * integrand.
+  *
+  * Base behavior integrates the flux directly (multiplier = 1). Derived
+  * postprocessors (e.g., reaction rates) can override this to provide
+  * \f$\Sigma_g(\text{cell})\f$ so that the integrated quantity becomes
+  * \f$\int_V \Sigma_g \phi_g\, dV\f$.
+  */
+  virtual double CellGroupMultiplier(const Cell&cell, unsigned int g) const {return 1.0;}
+
+  // Protected accessor for derived postprocessors.
+  const std::shared_ptr<LBSProblem>& GetLBSProblem() const {return lbs_problem_;}
+
+private:
   // Helper functions for different computation types
   std::vector<double> ComputeIntegral(const std::vector<uint32_t>& cell_local_ids);
   std::vector<double> ComputeMax(const std::vector<uint32_t>& cell_local_ids);
