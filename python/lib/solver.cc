@@ -19,6 +19,7 @@
 #include "modules/linear_boltzmann_solvers/lbs_problem/lbs_compute.h"
 #include "modules/solver.h"
 #include <pybind11/numpy.h>
+#include <pybind11/stl.h>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -596,7 +597,27 @@ WrapLBS(py::module& slv)
       self.SetAdjoint(adjoint);
     }
   );
+  lbs_problem.def(
+    "AddReactionRateDensityFieldFunctionRequest",
+    [](LBSProblem& self,
+      const std::string& reaction,
+      bool total,
+      py::object block_ids_obj)
+    {
+      std::vector<int> block_ids;
+      if (!block_ids_obj.is_none())
+        block_ids = block_ids_obj.cast<std::vector<int>>();
 
+      self.AddReactionRateDensityFieldFunctionRequest(reaction, total, block_ids);
+    },
+    py::arg("reaction"),
+    py::arg("total") = true,
+    py::arg("block_ids") = py::none()
+  );
+  lbs_problem.def(
+    "GetReactionRateDensityFieldFunctions",
+    &LBSProblem::GetReactionRateDensityFieldFunctions
+  );
   // discrete ordinate solver
   auto do_problem = py::class_<DiscreteOrdinatesProblem, std::shared_ptr<DiscreteOrdinatesProblem>,
                                LBSProblem>(

@@ -139,6 +139,33 @@ public:
   /// Obtains a reference to the grid.
   std::shared_ptr<MeshContinuum> GetGrid() const;
 
+  struct ReactionRateDensityInfo
+  {
+    std::string reaction;
+    bool total = true;
+    std::vector<int> block_ids;
+  };
+
+  std::vector<ReactionRateDensityInfo> reaction_rate_info_;
+
+  struct ReactionRateDensityFieldFunction
+  {
+    std::string reaction;
+    bool total = true;
+    unsigned int group = 0; // ignored when total==true
+    size_t ff_handle = 0;   // index into field_functions_
+    std::vector<int> block_ids;
+  };
+
+  std::vector<ReactionRateDensityFieldFunction> reaction_rate_fieldfuncs_;
+
+  void AddReactionRateDensityFieldFunctionRequest(const std::string& reaction,
+                                                  bool total = true,
+                                                  const std::vector<int>& block_ids = {});
+
+  /// Get Reaction Rate Field Functions
+  std::vector<std::shared_ptr<FieldFunctionGridBased>> GetReactionRateDensityFieldFunctions() const;
+
   /// Get pointer to carriers.
   void* GetCarrier(std::uint32_t idx) { return carriers_.at(idx); }
 
@@ -258,9 +285,9 @@ public:
    *
    * @note This does nothing for diffusion-based solvers.
    */
-  virtual void ReorientAdjointSolution() {};
+  virtual void ReorientAdjointSolution(){};
 
-  virtual void UpdatePsiOld() {};
+  virtual void UpdatePsiOld(){};
 
 protected:
   virtual void PrintSimHeader();
@@ -282,7 +309,7 @@ protected:
 
   void InitializeSolverSchemes();
 
-  virtual void InitializeWGSSolvers() {};
+  virtual void InitializeWGSSolvers(){};
 
   /// Initializes data carriers to GPUs and memory pinner.
   void InitializeGPUExtras();
@@ -368,6 +395,8 @@ private:
 
   /// Initialize boundary conditions
   void InitializeBoundaryConditions(const InputParameters& params);
+
+  void UpdateReactionRateDensityFieldFunctions();
 
 public:
   /// Max number of DOFs per cell that the sweep kernel on GPU can handle.

@@ -466,6 +466,16 @@ LBSProblem::GetPowerFieldFunction() const
   return field_functions_[power_gen_fieldfunc_local_handle_];
 }
 
+std::vector<std::shared_ptr<FieldFunctionGridBased>>
+LBSProblem::GetReactionRateDensityFieldFunctions() const
+{
+  std::vector<std::shared_ptr<FieldFunctionGridBased>> ffs;
+  ffs.reserve(reaction_rate_fieldfuncs_.size());
+  for (const auto& rr : reaction_rate_fieldfuncs_)
+    ffs.push_back(field_functions_.at(rr.ff_handle));
+  return ffs;
+}
+
 InputParameters
 LBSProblem::GetOptionsBlock()
 {
@@ -1072,6 +1082,18 @@ LBSProblem::InitializeParrays()
 }
 
 void
+opensn::LBSProblem::AddReactionRateDensityFieldFunctionRequest(const std::string& reaction,
+                                                               bool total,
+                                                               const std::vector<int>& block_ids)
+{
+  ReactionRateDensityInfo req;
+  req.reaction = reaction;
+  req.total = total;
+  req.block_ids = block_ids;
+  reaction_rate_info_.push_back(std::move(req));
+}
+
+void
 LBSProblem::InitializeFieldFunctions()
 {
   CALI_CXX_MARK_SCOPE("LBSProblem::InitializeFieldFunctions");
@@ -1109,7 +1131,7 @@ LBSProblem::InitializeFieldFunctions()
 
       phi_field_functions_local_map_[{g, m}] = field_functions_.size() - 1;
     } // for m
-  } // for g
+  }   // for g
 
   // Initialize power generation field function
   if (options_.power_field_function_on)
@@ -1131,6 +1153,52 @@ LBSProblem::InitializeFieldFunctions()
     field_functions_.push_back(power_ff);
 
     power_gen_fieldfunc_local_handle_ = field_functions_.size() - 1;
+  }
+
+  // Build reaction-rate field functions from the user requests.
+  reaction_rate_fieldfuncs_.clear();
+
+  for (const auto& req : reaction_rate_info_)
+  {
+    if (req.total)
+    {
+      auto rr_ff = std::make_shared<FieldFunctionGridBased>(
+        "rr_" + req.reaction + "_total", discretization_, Unknown(UnknownType::SCALAR));
+
+      field_function_stack.push_back(rr_ff);
+      field_functions_.push_back(rr_ff);
+
+      ReactionRateDensityFieldFunction info;
+      info.reaction = req.reaction;
+      info.total = true;
+      info.group = 0;
+      info.ff_handle = field_functions_.size() - 1;
+      info.block_ids = req.block_ids;
+
+      reaction_rate_fieldfuncs_.push_back(info);
+    }
+    else
+    {
+      for (unsigned int g = 0; g < num_groups_; ++g)
+      {
+        auto rr_ff =
+          std::make_shared<FieldFunctionGridBased>("rr_" + req.reaction + "_g" + std::to_string(g),
+                                                   discretization_,
+                                                   Unknown(UnknownType::SCALAR));
+
+        field_function_stack.push_back(rr_ff);
+        field_functions_.push_back(rr_ff);
+
+        ReactionRateDensityFieldFunction info;
+        info.reaction = req.reaction;
+        info.total = false;
+        info.group = g;
+        info.ff_handle = field_functions_.size() - 1;
+        info.block_ids = req.block_ids;
+
+        reaction_rate_fieldfuncs_.push_back(info);
+      }
+    }
   }
 }
 
@@ -1219,7 +1287,7 @@ LBSProblem::UpdateFieldFunctions()
 
         data_vector_local[imapB] = phi_new_local_[imapA];
       } // for node
-    } // for cell
+    }   // for cell
 
     auto& ff_ptr = field_functions_.at(ff_index);
     ff_ptr->UpdateFieldVector(data_vector_local);
@@ -1261,7 +1329,7 @@ LBSProblem::UpdateFieldFunctions()
         data_vector_power_local[imapA] = nodal_power;
         local_total_power += nodal_power * Vi(i);
       } // for node
-    } // for cell
+    }   // for cell
 
     double scale_factor = 1.0;
     if (options_.power_normalization > 0.0)
@@ -1291,6 +1359,81 @@ LBSProblem::UpdateFieldFunctions()
       }
     }
   } // if power enabled
+
+  UpdateReactionRateDensityFieldFunctions();
+}
+
+void
+LBSProblem::UpdateReactionRateDensityFieldFunctions()
+{
+  const auto& sdm = *discretization_;
+  const auto& phi_uk_man = flux_moments_uk_man_;
+
+  for (const auto& rr_info : reaction_rate_fieldfuncs_)
+  {
+    std::vector<double> rr_local(local_node_count_, 0.0);
+
+    auto block_allowed = [&](int block_id) -> bool
+    {
+      if (rr_info.block_ids.empty())
+        return true;
+      return std::find(rr_info.block_ids.begin(), rr_info.block_ids.end(), block_id) !=
+             rr_info.block_ids.end();
+    };
+
+    size_t applied = 0, skipped = 0; // debug
+    for (const auto& cell : grid_->local_cells)
+    {
+      if (!block_allowed(cell.block_id))
+      {
+        skipped++;
+        continue;
+      }
+      applied++;
+
+      const auto& cell_mapping = sdm.GetCellMapping(cell);
+      const size_t num_nodes = cell_mapping.GetNumNodes();
+
+      const auto xs_it = block_id_to_xs_map_.find(cell.block_id);
+      if (xs_it == block_id_to_xs_map_.end() || !xs_it->second)
+        throw std::runtime_error("UpdateReactionRateDensityFieldFunctions: no XS for block_id=" +
+                                 std::to_string(cell.block_id));
+
+      const MultiGroupXS& xs = *xs_it->second;
+
+      const std::vector<double>* sigma_ptr =
+        (rr_info.reaction == "total") ? &xs.GetSigmaTotal() : &xs.GetCustomXS(rr_info.reaction);
+
+      const auto& sigma = *sigma_ptr;
+
+      for (size_t i = 0; i < num_nodes; ++i)
+      {
+        const auto out_dof = sdm.MapDOFLocal(cell, i);
+        double rr_val = 0.0;
+
+        if (rr_info.total)
+        {
+          for (unsigned int g = 0; g < num_groups_; ++g)
+          {
+            const auto phi_g_dof = sdm.MapDOFLocal(cell, i, phi_uk_man, 0, g);
+
+            rr_val += sigma[g] * phi_new_local_[phi_g_dof];
+          }
+        }
+        else
+        {
+          const unsigned int g = rr_info.group;
+          const auto phi_g_dof = sdm.MapDOFLocal(cell, i, phi_uk_man, 0, g);
+
+          rr_val = sigma[g] * phi_new_local_[phi_g_dof];
+        }
+
+        rr_local[out_dof] = rr_val;
+      }
+    }
+
+    field_functions_.at(rr_info.ff_handle)->UpdateFieldVector(rr_local);
+  }
 }
 
 void
@@ -1335,9 +1478,9 @@ LBSProblem::SetPhiFromFieldFunctions(PhiSTLOption which_phi,
           else if (which_phi == PhiSTLOption::PHI_NEW)
             phi_new_local_[imapB] = ff_data[imapA];
         } // for node
-      } // for cell
-    } // for g
-  } // for m
+      }   // for cell
+    }     // for g
+  }       // for m
 }
 
 LBSProblem::~LBSProblem()
