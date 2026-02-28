@@ -1369,6 +1369,27 @@ LBSProblem::UpdateReactionRateDensityFieldFunctions()
   const auto& sdm = *discretization_;
   const auto& phi_uk_man = flux_moments_uk_man_;
 
+  auto GetSigmaByName = [&](const MultiGroupXS& xs,
+                          const std::string& name) -> const std::vector<double>*
+  {
+    const auto key = LowerCase(name);
+
+    if (key == "total" || key == "sigma_t" || key == "sigmat")
+      return &xs.GetSigmaTotal();
+
+    if (key == "absorption" || key == "sigma_a" || key == "sigmaa")
+      return &xs.GetSigmaAbsorption();
+
+    if (key == "fission" || key == "sigma_f" || key == "sigmaf")
+      return &xs.GetSigmaFission();
+
+    if (key == "nu-fission" || key == "nu_sigma_f" || key == "nusigmaf" ||
+        key == "nufission")
+      return &xs.GetNuSigmaF();
+
+    return &xs.GetCustomXS(name);
+  };
+
   for (const auto& rr_info : reaction_rate_fieldfuncs_)
   {
     std::vector<double> rr_local(local_node_count_, 0.0);
@@ -1401,10 +1422,23 @@ LBSProblem::UpdateReactionRateDensityFieldFunctions()
 
       const MultiGroupXS& xs = *xs_it->second;
 
-      const std::vector<double>* sigma_ptr =
-        (rr_info.reaction == "total") ? &xs.GetSigmaTotal() : &xs.GetCustomXS(rr_info.reaction);
-
+      const std::vector<double>* sigma_ptr = GetSigmaByName(xs, rr_info.reaction);
       const auto& sigma = *sigma_ptr;
+
+      // // ---- DEBUG: print all groups ----
+      // if (opensn::mpi_comm.rank() == 0)
+      // {
+      //   log.Log() << "\n=== RR XS DEBUG ===\n";
+      //   log.Log() << "Reaction: " << rr_info.reaction
+      //             << "  Num groups: " << sigma.size() << "\n";
+
+      //   for (size_t g = 0; g < sigma.size(); ++g)
+      //   {
+      //     log.Log() << "g=" << g << "  sigma=" << sigma[g] << "\n";
+      //   }
+
+      //   log.Log() << "====================\n";
+      // }
 
       for (size_t i = 0; i < num_nodes; ++i)
       {
