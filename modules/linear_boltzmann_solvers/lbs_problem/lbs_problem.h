@@ -32,6 +32,21 @@ class OutflowCarrier;
 class MeshCarrier;
 template <typename T>
 class MemoryPinner;
+struct ReactionRateDensityInfo
+{
+  std::string reaction;
+  bool total = true;
+  std::vector<int> block_ids;
+};
+
+struct ReactionRateDensityFieldFunction
+{
+  std::string reaction;
+  bool total = true;
+  unsigned int group = 0;
+  size_t ff_handle = 0;
+  std::vector<int> block_ids;
+};
 
 /// Base class for all Linear Boltzmann Solvers.
 class LBSProblem : public Problem
@@ -267,6 +282,20 @@ public:
   /// Returns the power generation field function, if enabled.
   std::shared_ptr<FieldFunctionGridBased> GetPowerFieldFunction() const;
 
+  // /// Adds a request for a reaction rate density field function. If the reaction is not present in the
+  // /// problem's materials, this request is ignored. If the reaction is present, the corresponding
+  // /// field function is made available through GetReactionRateDensityFieldFunctions(). 
+  // void AddReactionRateDensityFieldFunctionRequest(const std::string& reaction,
+  //                                               bool total = true,
+  //                                               const std::vector<int>& block_ids = {});
+
+  /// Returns the requested reaction rate density field function, if enabled.
+  std::vector<std::shared_ptr<FieldFunctionGridBased>>
+  GetReactionRateDensityFieldFunctions() const;
+
+  std::vector<ReactionRateDensityInfo> reaction_rate_info_;
+  std::vector<ReactionRateDensityFieldFunction> reaction_rate_fieldfuncs_;
+
   bool TriggerRestartDump() const
   {
     if (options_.write_restart_time_interval <= std::chrono::seconds(0))
@@ -416,6 +445,9 @@ private:
   /// Checks if the current CPU is associated with any GPU.
   static void CheckCapableDevices();
 
+  /// Updates the reaction rate density field functions with the latest phi and material data.
+  void UpdateReactionRateDensityFieldFunctions();
+
 public:
   /// Max number of DOFs per cell that the sweep kernel on GPU can handle.
   static constexpr std::uint32_t max_dofs_gpu = 10;
@@ -426,6 +458,8 @@ public:
   static InputParameters GetOptionsBlock();
 
   static InputParameters GetXSMapEntryBlock();
+
+  static InputParameters GetReactionRateDensityFieldFunctionBlock(); 
 };
 
 } // namespace opensn

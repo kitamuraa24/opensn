@@ -168,6 +168,13 @@ WrapLBS(py::module& slv)
     )"
   );
   lbs_problem.def(
+    "GetReactionRateDensityFieldFunctions",
+    &LBSProblem::GetReactionRateDensityFieldFunctions,
+    R"(
+    Get the reaction rate density field functions, if enabled.
+    )"
+  );
+  lbs_problem.def(
     "ComputeFissionRate",
     [](LBSProblem& self, const std::string& scalar_flux_iterate)
     {
@@ -724,6 +731,15 @@ WrapLBS(py::module& slv)
           - power_normalization: float, default=-1.0
           - field_function_prefix_option: {'prefix', 'solver_name'}, default='prefix'
           - field_function_prefix: str, default=''
+          - reaction_rate_density_field_functions: List[Dict], default=[]
+            A list of reaction-rate density field-function specifications. Each dictionary supports:
+              - reaction: str (required)
+                  Reaction name or custom XS name.
+              - total: bool, default=True
+                  If True, creates one total reaction-rate density field function.
+                  If False, creates one field function per group.
+              - block_ids: List[int], optional
+                  Optional list of block ids over which to evaluate the reaction rate.
         These options are applied at problem creation.
     sweep_type : str, default="AAH"
         The sweep type to use. Must be one of `AAH` or `CBC`. Defaults to `AAH`.
