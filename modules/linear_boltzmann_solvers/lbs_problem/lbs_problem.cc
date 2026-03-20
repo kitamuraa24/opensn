@@ -519,6 +519,16 @@ LBSProblem::GetPowerFieldFunction() const
   return field_functions_[power_gen_fieldfunc_local_handle_];
 }
 
+std::vector<std::shared_ptr<FieldFunctionGridBased>>
+LBSProblem::GetReactionRateDensityFieldFunctions() const
+{
+  std::vector<std::shared_ptr<FieldFunctionGridBased>> ffs;
+  ffs.reserve(reaction_rate_fieldfuncs_.size());
+  for (const auto& rr : reaction_rate_fieldfuncs_)
+    ffs.push_back(field_functions_.at(rr.ff_handle));
+  return ffs;
+}
+
 InputParameters
 LBSProblem::GetOptionsBlock()
 {
@@ -592,6 +602,15 @@ LBSProblem::GetOptionsBlock()
                               "as `prefix_phi_gXXX_mYYY` where `XXX` is the zero padded 3 digit "
                               "group number and `YYY` is the zero padded 3 digit moment. The "
                               "underscore after \"prefix\" is added automatically.");
+  params.AddOptionalParameterArray(
+    "reaction_rate_density_field_functions",
+    {},
+    "An array of reaction rate density field function requests. Each entry "
+    "corresponds to the name of the cross-section of the desired reaction, i.e. "
+    "for total reaction rate density the entry would be `\"total\"`, for fission "
+    "it would be `\"fission\"` or `\"sigma_f\"`, etc. If the specified reaction "
+    "is not present in any of the problem's materials, the request is ignored."
+    "By default, no reaction rate density field functions are created and the array is empty.");
   params.ConstrainParameterRange("ags_convergence_check",
                                  AllowableRangeList::New({"l2", "pointwise"}));
   params.ConstrainParameterRange("field_function_prefix_option",
@@ -612,6 +631,19 @@ LBSProblem::GetXSMapEntryBlock()
   params.SetGeneralDescription("Set the cross-section map for the solver.");
   params.AddRequiredParameterArray("block_ids", "Mesh block IDs");
   params.AddRequiredParameter<std::shared_ptr<MultiGroupXS>>("xs", "Cross-section object");
+  return params;
+}
+
+InputParameters
+LBSProblem::GetReactionRateDensityFieldFunctionBlock()
+{
+  InputParameters params;
+  params.SetGeneralDescription("Specification for a reaction-rate density field function.");
+  params.AddRequiredParameter<std::string>("reaction", "Reaction name or custom XS name.");
+  params.AddOptionalParameter(
+    "total", true, "If true, create a total reaction-rate density field function.");
+  params.AddOptionalParameterArray(
+    "block_ids", {}, "Optional list of block ids over which to evaluate the reaction rate.");
   return params;
 }
 
@@ -689,6 +721,33 @@ LBSProblem::ParseOptions(const InputParameters& input)
     const auto setter_it = option_setters.find(spec.GetName());
     if (setter_it != option_setters.end())
       setter_it->second(spec);
+  }
+
+  // Parse reaction rate density field-function specifications
+
+  if (params.GetParam("reaction_rate_density_field_functions").GetNumParameters() > 0)
+  {
+    const auto& rr_array = params.GetParam("reaction_rate_density_field_functions");
+    rr_array.RequireBlockTypeIs(ParameterBlockType::ARRAY);
+
+    for (const auto& rr_block : rr_array)
+    {
+      InputParameters rr_params = LBSProblem::GetReactionRateDensityFieldFunctionBlock();
+      rr_params.AssignParameters(rr_block);
+
+      ReactionRateDensityInfo rr_info;
+      rr_info.reaction = rr_params.GetParamValue<std::string>("reaction");
+      rr_info.total = rr_params.GetParamValue<bool>("total");
+
+      if (rr_params.Has("block_ids"))
+      {
+        const auto& block_ids_param = rr_params.GetParam("block_ids");
+        block_ids_param.RequireBlockTypeIs(ParameterBlockType::ARRAY);
+        rr_info.block_ids = block_ids_param.GetVectorValue<int>();
+      }
+
+      reaction_rate_info_.push_back(rr_info);
+    }
   }
 
   OpenSnInvalidArgumentIf(options_.write_restart_time_interval > std::chrono::seconds(0) and
@@ -1232,6 +1291,56 @@ LBSProblem::InitializeFieldFunctions()
 
     power_gen_fieldfunc_local_handle_ = field_functions_.size() - 1;
   }
+
+  // Initialize reaction-rate density field functions
+
+  if (not reaction_rate_info_.empty())
+  {
+    for (const auto& rr_info : reaction_rate_info_)
+    {
+      std::string prefix;
+      if (options_.field_function_prefix_option == "prefix")
+      {
+        prefix = options_.field_function_prefix;
+        if (not prefix.empty())
+          prefix += "_";
+      }
+      if (options_.field_function_prefix_option == "solver_name")
+        prefix = GetName() + "_";
+
+      if (rr_info.total)
+      {
+        auto rr_ff =
+          std::make_shared<FieldFunctionGridBased>(prefix + "rr_" + rr_info.reaction + "_total",
+                                                   discretization_,
+                                                   Unknown(UnknownType::SCALAR));
+
+        field_function_stack.push_back(rr_ff);
+        field_functions_.push_back(rr_ff);
+
+        reaction_rate_fieldfuncs_.push_back(
+          {rr_info.reaction, true, 0, field_functions_.size() - 1, rr_info.block_ids});
+      }
+      else
+      {
+        for (unsigned int g = 0; g < num_groups_; ++g)
+        {
+          std::ostringstream oss;
+          oss << prefix << "rr_" << rr_info.reaction << "_g" << std::setw(3) << std::setfill('0')
+              << static_cast<int>(g);
+
+          auto rr_ff = std::make_shared<FieldFunctionGridBased>(
+            oss.str(), discretization_, Unknown(UnknownType::SCALAR));
+
+          field_function_stack.push_back(rr_ff);
+          field_functions_.push_back(rr_ff);
+
+          reaction_rate_fieldfuncs_.push_back(
+            {rr_info.reaction, false, g, field_functions_.size() - 1, rr_info.block_ids});
+        }
+      }
+    }
+  }
 }
 
 void
@@ -1394,6 +1503,92 @@ LBSProblem::UpdateFieldFunctions()
       }
     }
   } // if power enabled
+
+  if (not reaction_rate_fieldfuncs_.empty())
+  {
+    UpdateReactionRateDensityFieldFunctions();
+  } // if reaction rate densities were requested
+}
+
+void
+LBSProblem::UpdateReactionRateDensityFieldFunctions()
+{
+  const auto& sdm = *discretization_;
+  const auto& phi_uk_man = flux_moments_uk_man_;
+
+  auto GetSigmaByName = [&](const MultiGroupXS& xs,
+                            const std::string& name) -> const std::vector<double>*
+  {
+    const auto key = LowerCase(name);
+
+    if (key == "total" || key == "sigma_t" || key == "sigt")
+      return &xs.GetSigmaTotal();
+
+    if (key == "absorption" || key == "sigma_a" || key == "siga")
+      return &xs.GetSigmaAbsorption();
+
+    return &xs.GetCustomXS(name);
+  };
+
+  for (const auto& rr_info : reaction_rate_fieldfuncs_)
+  {
+    std::vector<double> rr_local(local_node_count_, 0.0);
+
+    auto block_allowed = [&](int block_id) -> bool
+    {
+      if (rr_info.block_ids.empty())
+        return true;
+      return std::find(rr_info.block_ids.begin(), rr_info.block_ids.end(), block_id) !=
+             rr_info.block_ids.end();
+    };
+
+    size_t applied = 0, skipped = 0; // debug
+    for (const auto& cell : grid_->local_cells)
+    {
+      if (!block_allowed(cell.block_id))
+      {
+        skipped++;
+        continue;
+      }
+      applied++;
+
+      const auto& cell_mapping = sdm.GetCellMapping(cell);
+      const size_t num_nodes = cell_mapping.GetNumNodes();
+
+      const auto& transport_view = cell_transport_views_[cell.local_id];
+      const MultiGroupXS& xs = transport_view.GetXS();
+
+      const std::vector<double>* sigma_ptr = GetSigmaByName(xs, rr_info.reaction);
+      const auto& sigma = *sigma_ptr;
+
+      for (size_t i = 0; i < num_nodes; ++i)
+      {
+        const auto out_dof = sdm.MapDOFLocal(cell, i);
+        double rr_val = 0.0;
+
+        if (rr_info.total)
+        {
+          for (unsigned int g = 0; g < num_groups_; ++g)
+          {
+            const auto phi_g_dof = sdm.MapDOFLocal(cell, i, phi_uk_man, 0, g);
+
+            rr_val += sigma[g] * phi_new_local_[phi_g_dof];
+          }
+        }
+        else
+        {
+          const unsigned int g = rr_info.group;
+          const auto phi_g_dof = sdm.MapDOFLocal(cell, i, phi_uk_man, 0, g);
+
+          rr_val = sigma[g] * phi_new_local_[phi_g_dof];
+        }
+
+        rr_local[out_dof] = rr_val;
+      }
+    }
+
+    field_functions_.at(rr_info.ff_handle)->UpdateFieldVector(rr_local);
+  }
 }
 
 void
