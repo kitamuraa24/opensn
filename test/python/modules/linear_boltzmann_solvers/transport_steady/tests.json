@@ -1020,6 +1020,26 @@
     ]
   },
   {
+    "file": "reed_test_rr_field_func.py",
+    "comment": "1D LinearBSolver Reed problem testing reaction rate density field-funcs",
+    "num_procs": 1,
+    "weight_class": "intermediate",
+    "checks": [
+      {
+        "type": "KeyValuePair",
+        "key": "Relative-error-total=",
+        "goldvalue": 2.982531e-15,
+        "abs_tol": 1e-14
+      },
+      {
+        "type": "KeyValuePair",
+        "key": "Relative-error-abs=",
+        "goldvalue": 5.2059566e-15,
+        "abs_tol": 1e-14
+      }
+    ]
+  },
+  {
     "file": "transport_3d_2_unstructured_restart.py",
     "comment": "3D Unstructured problem with restart",
     "num_procs": 4,
