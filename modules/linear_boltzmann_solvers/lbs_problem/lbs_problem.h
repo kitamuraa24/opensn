@@ -257,6 +257,19 @@ public:
   std::shared_ptr<FieldFunctionGridBased> CreateFieldFunction(
     const std::string& name, const std::string& xs_name, double power_normalization_target = -1.0);
 
+  /**
+   * Creates a named reaction-rate density field function from a 1D XS.
+   *
+   * If \p group is non-negative, only that group contributes to the field. Otherwise, the field is
+   * summed over all energy groups. If \p block_ids is non-empty, only cells whose block id is in
+   * the list contribute; other cells are assigned zero.
+   */
+  std::shared_ptr<FieldFunctionGridBased>
+  CreateReactionRateDensityFieldFunction(const std::string& name,
+                                         const std::string& xs_name,
+                                         int group = -1,
+                                         const std::vector<int>& block_ids = {});
+
   bool ReadRestartData(const RestartDataHook& extra_reader = {});
   bool WriteRestartData(const RestartDataHook& extra_writer = {});
 
@@ -313,6 +326,10 @@ protected:
   void UpdateDerivedFieldFunction(FieldFunctionGridBased& ff,
                                   const std::string& xs_name,
                                   double power_normalization_target);
+  void UpdateReactionRateDensityFieldFunction(FieldFunctionGridBased& ff,
+                                              const std::string& xs_name,
+                                              int group,
+                                              const std::vector<int>& block_ids);
   virtual bool ReadProblemRestartData(hid_t file_id);
   virtual bool WriteProblemRestartData(hid_t file_id) const;
 
@@ -381,6 +398,8 @@ private:
   std::vector<double> ComputeScalarFluxFieldFunctionData(unsigned int g, unsigned int m) const;
   double ComputeFieldFunctionPowerScaleFactor(double power_normalization_target) const;
   std::vector<double> ComputeXSFieldFunctionData(const std::string& xs_name) const;
+  std::vector<double> ComputeReactionRateDensityFieldFunctionData(
+    const std::string& xs_name, int group, const std::vector<int>& block_ids) const;
   std::vector<double> ComputePowerFieldFunctionData(double& local_total_power) const;
   /// Initializes data carriers to GPUs and memory pinner.
   void InitializeGPUExtras();

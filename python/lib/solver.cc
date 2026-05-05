@@ -3,6 +3,7 @@
 
 #include "python/lib/py_wrappers.h"
 #include <pybind11/functional.h>
+#include <pybind11/stl.h>
 #include "framework/logging/log.h"
 #include "framework/runtime.h"
 #include "framework/field_functions/field_function_grid_based.h"
@@ -198,6 +199,38 @@ WrapLBS(py::module& slv)
     py::arg("name"),
     py::arg("xs_name"),
     py::arg("power_normalization_target") = -1.0
+  );
+  lbs_problem.def(
+    "CreateReactionRateDensityFieldFunction",
+    &LBSProblem::CreateReactionRateDensityFieldFunction,
+    R"(
+    Create a named reaction-rate density field function.
+
+    Parameters
+    ----------
+    name : str
+        Name to assign to the returned field function.
+    xs_name : str
+        Built-in 1D XS name, custom XS name, or a common reaction alias such as
+        ``total``, ``absorption``, or ``fission``.
+    group : int, default=-1
+        Energy group to use. ``-1`` sums over all groups.
+    block_ids : List[int], default=[]
+        Optional block restriction. Empty means all cells contribute.
+
+    Notes
+    -----
+    The returned field function is created on demand from the current scalar-flux iterate.
+    It computes ``xs[g] * phi_g`` for a selected group or ``sum_g xs[g] * phi_g`` when
+    ``group == -1``. Cells outside ``block_ids`` are assigned zero.
+
+    The returned field function supports ``CanUpdate()`` and ``Update()`` while its owning
+    problem is still alive.
+    )",
+    py::arg("name"),
+    py::arg("xs_name"),
+    py::arg("group") = -1,
+    py::arg("block_ids") = std::vector<int>{}
   );
   lbs_problem.def(
     "GetTime",

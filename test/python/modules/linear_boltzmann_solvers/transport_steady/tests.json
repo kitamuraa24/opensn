@@ -1451,5 +1451,30 @@
         "abs_tol": 1e-8
       }
     ]
+  },
+  {
+    "file": "reed_test_rr_field_func.py",
+    "comment": "Reed 1D reaction-rate density field-function test",
+    "num_procs": 3,
+    "checks": [
+      {
+        "type": "KeyValuePair",
+        "key": "Relative-error-total=",
+        "goldvalue": 0.0,
+        "abs_tol": 1e-10
+      },
+      {
+        "type": "KeyValuePair",
+        "key": "Relative-error-abs=",
+        "goldvalue": 0.0,
+        "abs_tol": 1e-10
+      },
+      {
+        "type": "KeyValuePair",
+        "key": "Relative-error-total-block3=",
+        "goldvalue": 0.0,
+        "abs_tol": 1e-10
+      }
+    ]
   }
 ]
