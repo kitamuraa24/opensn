@@ -1642,6 +1642,30 @@
       },
       {
         "type": "KeyValuePair",
+        "key": "Manual-total-rate-g0=",
+        "goldvalue": 7.274513316969501,
+        "rel_tol": 1.0e-6
+      },
+      {
+        "type": "KeyValuePair",
+        "key": "Manual-abs-rate-g0=",
+        "goldvalue": 2.8129895643430793,
+        "rel_tol": 1.0e-6
+      },
+      {
+        "type": "KeyValuePair",
+        "key": "Manual-total-rate-g1=",
+        "goldvalue": 3.199858312155642,
+        "rel_tol": 1.0e-6
+      },
+      {
+        "type": "KeyValuePair",
+        "key": "Manual-abs-rate-g1=",
+        "goldvalue": 2.0624279031595663,
+        "rel_tol": 1.0e-6
+      },
+      {
+        "type": "KeyValuePair",
         "key": "RR2D2GFieldsExported=",
         "goldvalue": 1.0,
         "abs_tol": 1.0e-12
